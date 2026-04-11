@@ -1977,6 +1977,7 @@ function editApp(id) {
           '<input type="text" id="editName" value="' + (s.name || '').replace(/"/g, '&quot;') + '" style="flex:1;">' +
         '</div>' +
       '</div>' +
+      '<div class="form-group"><label>App Slug <span style="font-weight:normal;color:var(--text-dim);">(changes the URL)</span></label><input type="text" id="editSlug" value="' + (s.slug || '') + '" pattern="[a-z][a-z0-9-]+" maxlength="31" style="font-family:monospace;"></div>' +
       '<div class="form-group"><label>Description</label><textarea id="editDesc">' + (s.description || '') + '</textarea></div>' +
       '<div class="form-group"><label>Port</label><input type="number" id="editPort" value="' + s.port + '" min="1024" max="65535"></div>' +
       '<div class="form-group"><label>Git Repository URL</label><input type="text" id="editRepo" value="' + (s.repo_url || '').replace(/"/g, '&quot;') + '"></div>' +
@@ -1999,6 +2000,7 @@ function editApp(id) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           id: id,
+          slug: document.getElementById('editSlug').value.trim().toLowerCase(),
           name: document.getElementById('editName').value.trim(),
           description: document.getElementById('editDesc').value.trim(),
           icon: document.getElementById('editIcon').value.trim(),

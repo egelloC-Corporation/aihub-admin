@@ -549,6 +549,7 @@ def api_edit_app():
 
     result = edit_submission(
         submission_id,
+        slug=body.get("slug"),
         name=body.get("name"),
         description=body.get("description"),
         icon=body.get("icon"),

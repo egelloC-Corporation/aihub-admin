@@ -387,15 +387,31 @@ def delete_submission(submission_id):
     return {"status": "deleted", "slug": slug, "was_live": row["status"] == "live"}
 
 
-def edit_submission(submission_id, name=None, description=None, icon=None, port=None, repo_url=None, env_keys=None):
-    """Edit fields on an existing submission."""
+def edit_submission(submission_id, slug=None, name=None, description=None, icon=None, port=None, repo_url=None, env_keys=None):
+    """Edit fields on an existing submission. Supports slug changes."""
     conn = get_db()
     row = conn.execute("SELECT * FROM app_submissions WHERE id = ?", (submission_id,)).fetchone()
     if not row:
         conn.close()
         return {"error": "Submission not found"}
 
+    old_slug = row["slug"]
+    new_slug = slug if (slug and slug != old_slug) else None
+
+    # Validate new slug if changing
+    if new_slug:
+        import re
+        if not re.match(r'^[a-z][a-z0-9-]{1,30}$', new_slug):
+            conn.close()
+            return {"error": "Slug must be lowercase letters, numbers, hyphens. 2-31 chars, start with letter."}
+        existing = conn.execute("SELECT 1 FROM app_submissions WHERE slug = ? AND id != ?", (new_slug, submission_id)).fetchone()
+        if existing:
+            conn.close()
+            return {"error": f"Slug '{new_slug}' is already taken"}
+
     updates = {}
+    if new_slug:
+        updates["slug"] = new_slug
     if name is not None:
         updates["name"] = name
     if description is not None:
@@ -417,16 +433,26 @@ def edit_submission(submission_id, name=None, description=None, icon=None, port=
     values = list(updates.values()) + [submission_id]
     conn.execute(f"UPDATE app_submissions SET {set_clause} WHERE id = ?", values)
 
-    # Also update app_registry if name or description changed
+    # Update app_registry
+    if new_slug:
+        conn.execute("UPDATE app_registry SET slug = ? WHERE slug = ?", (new_slug, old_slug))
+        conn.execute("UPDATE app_permissions SET app_slug = ? WHERE app_slug = ?", (new_slug, old_slug))
     if "name" in updates or "description" in updates:
+        target_slug = new_slug or old_slug
         conn.execute(
             "UPDATE app_registry SET name = COALESCE(?, name), description = COALESCE(?, description) WHERE slug = ?",
-            (updates.get("name"), updates.get("description"), row["slug"]),
+            (updates.get("name"), updates.get("description"), target_slug),
         )
 
     conn.commit()
     conn.close()
-    return {"status": "updated"}
+
+    result = {"status": "updated"}
+    if new_slug:
+        result["old_slug"] = old_slug
+        result["new_slug"] = new_slug
+        result["note"] = "Slug changed. If this app is deployed, undeploy and redeploy with the new slug."
+    return result
 
 
 # Initialize on import
