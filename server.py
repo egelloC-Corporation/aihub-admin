@@ -29,6 +29,9 @@ from permissions import (
     get_user_permissions, user_has_permission, grant_permission,
     revoke_permission, get_all_permissions, get_all_apps, get_egelloc_staff,
     add_custom_user, remove_custom_user, get_custom_users,
+    submit_app, get_all_submissions,
+    approve_submission, mark_submission_live, mark_submission_error,
+    reject_submission, delete_submission, edit_submission,
     APPS,
 )
 import anthropic
@@ -48,6 +51,10 @@ CORS(app)
 # When behind a reverse proxy at /briefer/, Nginx sets SCRIPT_NAME via X-Forwarded-Prefix
 # so url_for() generates correct absolute URLs (e.g. /briefer/auth/callback)
 APP_PREFIX = os.environ.get("APP_PREFIX", "")  # set to "/briefer" in production
+
+# Deploy service URL — separate infra service on port 5001
+# In Docker Compose: http://deploy-service:5001 | Native: http://localhost:5001
+DEPLOY_SERVICE_URL = os.environ.get("DEPLOY_SERVICE_URL", "http://localhost:5001")
 
 # ── Google OAuth SSO ──
 ALLOWED_DOMAIN = "egelloc.com"
@@ -180,6 +187,22 @@ def launcher():
     return send_from_directory(".", "launcher.html")
 
 
+@app.route("/launcher/api/apps")
+@login_required
+def launcher_apps():
+    """Return deployed apps for the launcher. Any authenticated user can call this."""
+    from permissions import get_db
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT s.slug, s.name, s.description, s.icon, s.port
+           FROM app_submissions s
+           WHERE s.status = 'live'
+           ORDER BY s.name"""
+    ).fetchall()
+    conn.close()
+    return jsonify({"apps": [dict(r) for r in rows]})
+
+
 @app.route("/knowledge", strict_slashes=False)
 @app.route("/knowledge/<path:path>")
 @login_required
@@ -250,20 +273,27 @@ def admin_required(f):
 
 
 @app.route("/admin")
+@app.route("/admin/infrastructure")
+@app.route("/admin/apps")
 @admin_required
 def admin_page():
-    return send_from_directory(".", "admin.html")
+    resp = send_from_directory(".", "admin.html")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 
 @app.route("/admin/api/users")
 @admin_required
 def admin_users():
     """Get all egelloC staff with their current permissions."""
-    conn = pool.get_connection()
-    try:
-        staff = get_egelloc_staff(conn)
-    finally:
-        conn.close()
+    if pool:
+        conn = pool.get_connection()
+        try:
+            staff = get_egelloc_staff(conn)
+        finally:
+            conn.close()
+    else:
+        staff = []
 
     all_perms = get_all_permissions()
     apps = get_all_apps()
@@ -388,6 +418,273 @@ def admin_bulk():
             revoke_permission(email, app_slug)
 
     return jsonify({"status": "ok", "processed": len(actions)})
+
+
+# ── App Registry: submission + approval ──
+# Deploy/undeploy endpoints are built by the infra session on this same server.
+# The UI calls POST /admin/api/deploy and POST /admin/api/undeploy directly.
+# This section handles the submission workflow: submit → approve/reject.
+# On approve, the app is registered. Deploy is a separate admin action.
+
+import re
+
+@app.route("/admin/api/apps/submit", methods=["POST"])
+@login_required
+def api_submit_app():
+    """Submit a new app for admin review. Any authenticated user can submit."""
+    body = request.get_json()
+    slug = (body.get("slug") or "").strip().lower()
+    name = (body.get("name") or "").strip()
+    description = (body.get("description") or "").strip()
+    icon = (body.get("icon") or "").strip()
+    port = body.get("port")
+    repo_url = (body.get("repo_url") or "").strip()
+    env_keys = (body.get("env_keys") or "").strip()
+
+    if not slug or not name or not port:
+        return jsonify({"error": "slug, name, and port are required"}), 400
+    if not re.match(r"^[a-z][a-z0-9-]{1,30}$", slug):
+        return jsonify({"error": "Slug must be lowercase letters, numbers, hyphens. 2-31 chars, start with letter."}), 400
+    try:
+        port = int(port)
+        if not (1024 <= port <= 65535):
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"error": "Port must be a number between 1024 and 65535"}), 400
+
+    # Run pre-submission validation via deploy service
+    validation = None
+    try:
+        val_resp = http_requests.post(
+            f"{DEPLOY_SERVICE_URL}/validate",
+            json={"app_name": slug, "port": port, "repo_url": repo_url},
+            timeout=15,
+        )
+        if val_resp.ok:
+            validation = val_resp.json()
+            # Block submission if validation fails
+            if validation.get("result") == "fail":
+                return jsonify({
+                    "error": "Submission failed validation",
+                    "validation": validation,
+                }), 422
+    except Exception:
+        # Deploy service unavailable — allow submission without validation
+        pass
+
+    submitted_by = session["user"]["email"]
+    result = submit_app(slug, name, description, icon, port, repo_url, env_keys, submitted_by)
+    if "error" in result:
+        return jsonify(result), 409
+    if validation:
+        result["validation"] = validation
+    return jsonify(result)
+
+
+@app.route("/admin/api/apps/submissions")
+@admin_required
+def api_app_submissions():
+    """Get all app submissions (admin only)."""
+    return jsonify({"submissions": get_all_submissions()})
+
+
+@app.route("/admin/api/apps/approve", methods=["POST"])
+@admin_required
+def api_approve_app():
+    """Approve a pending app submission. Registers the app but does NOT deploy.
+    Admin must click Deploy separately after approval."""
+    body = request.get_json()
+    submission_id = body.get("id")
+    if not submission_id:
+        return jsonify({"error": "id is required"}), 400
+
+    reviewed_by = session["user"]["email"]
+    result = approve_submission(submission_id, reviewed_by)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
+
+
+@app.route("/admin/api/apps/edit", methods=["POST"])
+@admin_required
+def api_edit_app():
+    """Edit an app submission's details."""
+    body = request.get_json()
+    submission_id = body.get("id")
+    if not submission_id:
+        return jsonify({"error": "id is required"}), 400
+
+    result = edit_submission(
+        submission_id,
+        name=body.get("name"),
+        description=body.get("description"),
+        icon=body.get("icon"),
+        port=body.get("port"),
+        repo_url=body.get("repo_url"),
+        env_keys=body.get("env_keys"),
+    )
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route("/admin/api/apps/reject", methods=["POST"])
+@admin_required
+def api_reject_app():
+    """Reject a pending app submission."""
+    body = request.get_json()
+    submission_id = body.get("id")
+    if not submission_id:
+        return jsonify({"error": "id is required"}), 400
+
+    reviewed_by = session["user"]["email"]
+    result = reject_submission(submission_id, reviewed_by)
+    if "error" in result:
+        return jsonify(result), 404
+    return jsonify(result)
+
+
+@app.route("/admin/api/apps/delete", methods=["POST"])
+@admin_required
+def api_delete_app():
+    """Delete an app submission. If the app is live, undeploys it first."""
+    body = request.get_json()
+    submission_id = body.get("id")
+    if not submission_id:
+        return jsonify({"error": "id is required"}), 400
+
+    result = delete_submission(submission_id)
+    if "error" in result:
+        return jsonify(result), 404
+
+    # If the app was live, trigger undeploy to clean up containers/routes/DB
+    if result.get("was_live"):
+        try:
+            http_requests.post(
+                f"{DEPLOY_SERVICE_URL}/undeploy",
+                json={"app_name": result["slug"]},
+                timeout=30,
+            )
+        except Exception:
+            pass  # Best effort — infra cleanup is non-blocking
+
+    return jsonify(result)
+
+
+@app.route("/admin/api/apps/status", methods=["POST"])
+@admin_required
+def api_update_app_status():
+    """Update a submission's status after deploy/undeploy.
+    Called by the UI after the deploy endpoint responds."""
+    body = request.get_json()
+    slug = (body.get("slug") or "").strip()
+    status = (body.get("status") or "").strip()
+    if not slug or status not in ("live", "error", "approved"):
+        return jsonify({"error": "slug and status (live|error|approved) required"}), 400
+
+    from permissions import get_db
+    conn = get_db()
+    row = conn.execute("SELECT id FROM app_submissions WHERE slug = ?", (slug,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Submission not found"}), 404
+
+    if status == "live":
+        mark_submission_live(row["id"])
+    elif status == "error":
+        mark_submission_error(row["id"])
+    else:
+        conn.execute("UPDATE app_submissions SET status = 'approved' WHERE id = ?", (row["id"],))
+        conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/admin/api/deploy", methods=["POST"])
+@admin_required
+def api_deploy_app():
+    """Deploy an approved app via the deploy service."""
+    body = request.get_json()
+    app_name = (body.get("app_name") or body.get("slug") or "").strip()
+    port = body.get("port")
+    repo_url = body.get("repo_url")
+    local_path = body.get("local_path")
+    dry_run = body.get("dry_run", False)
+
+    if not app_name or not port:
+        return jsonify({"error": "app_name and port are required"}), 400
+
+    try:
+        resp = http_requests.post(
+            f"{DEPLOY_SERVICE_URL}/deploy",
+            json={
+                "app_name": app_name,
+                "port": port,
+                "repo_url": repo_url,
+                "local_path": local_path,
+                "dry_run": dry_run,
+            },
+            timeout=120,
+        )
+        return jsonify(resp.json()), resp.status_code
+    except http_requests.ConnectionError:
+        return jsonify({"error": "Deploy service unavailable"}), 503
+    except http_requests.Timeout:
+        return jsonify({"error": "Deploy timed out"}), 504
+
+
+@app.route("/admin/api/undeploy", methods=["POST"])
+@admin_required
+def api_undeploy_app():
+    """Remove a deployed app via the deploy service."""
+    body = request.get_json()
+    app_name = (body.get("app_name") or body.get("slug") or "").strip()
+
+    if not app_name:
+        return jsonify({"error": "app_name is required"}), 400
+
+    try:
+        resp = http_requests.post(
+            f"{DEPLOY_SERVICE_URL}/undeploy",
+            json={"app_name": app_name},
+            timeout=60,
+        )
+        return jsonify(resp.json()), resp.status_code
+    except http_requests.ConnectionError:
+        return jsonify({"error": "Deploy service unavailable"}), 503
+    except http_requests.Timeout:
+        return jsonify({"error": "Undeploy timed out"}), 504
+
+
+@app.route("/admin/api/test-deploy", methods=["POST"])
+@admin_required
+def api_test_deploy():
+    """Pre-deploy validation — checks without building or deploying."""
+    body = request.get_json()
+    app_name = (body.get("app_name") or body.get("slug") or "").strip()
+    port = body.get("port")
+    repo_url = body.get("repo_url")
+    local_path = body.get("local_path")
+
+    if not app_name or not port:
+        return jsonify({"error": "app_name and port are required"}), 400
+
+    try:
+        resp = http_requests.post(
+            f"{DEPLOY_SERVICE_URL}/test",
+            json={
+                "app_name": app_name,
+                "port": port,
+                "repo_url": repo_url,
+                "local_path": local_path,
+            },
+            timeout=30,
+        )
+        return jsonify(resp.json()), resp.status_code
+    except http_requests.ConnectionError:
+        return jsonify({"error": "Deploy service unavailable"}), 503
+    except http_requests.Timeout:
+        return jsonify({"error": "Test timed out"}), 504
 
 
 # ── Infrastructure access management ──
@@ -896,11 +1193,15 @@ def admin_drop_db_user():
 
 
 # ── Connection pool (reuses connections instead of opening new ones) ──
-pool = mysql.connector.pooling.MySQLConnectionPool(
-    pool_name="briefer",
-    pool_size=5,
-    **DB_CONFIG
-)
+try:
+    pool = mysql.connector.pooling.MySQLConnectionPool(
+        pool_name="briefer",
+        pool_size=5,
+        **DB_CONFIG
+    )
+except Exception as e:
+    log.warning("MySQL pool failed to initialize (expected in local dev without MySQL): %s", e)
+    pool = None
 
 # ── Caches ──
 fathom_cache = {}       # coach_email -> list of fathom meetings
@@ -1219,4 +1520,4 @@ Answer concisely and directly. Reference specific dates, notes, or transcript mo
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", 5051)), debug=False)
+    app.run(host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", 5051)), debug=False)

@@ -96,8 +96,21 @@
       });
   }
 
-  fetchAuth()
-    .then(function(user) {
+  function fetchDeployedApps() {
+    return fetch("/launcher/api/apps")
+      .then(function(r) { return r.ok ? r.json() : { apps: [] }; })
+      .then(function(data) {
+        return (data.apps || []).map(function(a) {
+          return { slug: a.slug, name: a.name, icon: a.icon || "\ud83d\udce6", url: "/" + a.slug + "/" };
+        });
+      })
+      .catch(function() { return []; });
+  }
+
+  Promise.all([fetchAuth(), fetchDeployedApps()])
+    .then(function(results) {
+      var user = results[0];
+      var deployed = results[1];
       if (!user.authenticated) return;
 
       var perms = user.permissions || [];
@@ -111,6 +124,24 @@
       document.getElementById("hubDropdownName").textContent = user.name || "";
       document.getElementById("hubDropdownEmail").textContent = user.email || "";
 
+      // Merge hardcoded + deployed apps (no duplicates)
+      var knownSlugs = {};
+      for (var i = 0; i < APPS.length; i++) knownSlugs[APPS[i].slug] = true;
+      var allApps = APPS.slice();
+      for (var j = 0; j < deployed.length; j++) {
+        if (!knownSlugs[deployed[j].slug]) allApps.push(deployed[j]);
+      }
+
+      // Detect current app from URL
+      if (!currentSlug) {
+        for (var k = 0; k < deployed.length; k++) {
+          if (path.indexOf("/" + deployed[k].slug) === 0) {
+            currentSlug = deployed[k].slug;
+            break;
+          }
+        }
+      }
+
       // Build app grid — only show apps user has permission for
       var grid = document.getElementById("hubAppGrid");
       var html = "";
@@ -120,8 +151,8 @@
         '<div class="hub-app-icon">\ud83c\udfe0</div>' +
         '<div class="hub-app-label">Home</div></a>';
 
-      for (var i = 0; i < APPS.length; i++) {
-        var app = APPS[i];
+      for (var i = 0; i < allApps.length; i++) {
+        var app = allApps[i];
         if (perms.indexOf(app.slug) === -1) continue;
         var active = app.slug === currentSlug ? " active" : "";
         html += '<a class="hub-app-item' + active + '" href="' + app.url + '">' +

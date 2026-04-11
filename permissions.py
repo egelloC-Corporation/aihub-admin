@@ -53,7 +53,29 @@ def init_db():
             name TEXT NOT NULL,
             description TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS app_submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            icon TEXT DEFAULT '',
+            port INTEGER NOT NULL,
+            repo_url TEXT DEFAULT '',
+            env_keys TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending',
+            submitted_by TEXT NOT NULL,
+            reviewed_by TEXT,
+            submitted_at TEXT DEFAULT (datetime('now')),
+            reviewed_at TEXT
+        );
     """)
+
+    # Migrate: add icon column if missing
+    try:
+        conn.execute("ALTER TABLE app_submissions ADD COLUMN icon TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     # Upsert app registry
     for app in APPS:
@@ -186,6 +208,216 @@ def get_custom_users():
     rows = conn.execute("SELECT email, first_name, last_name, role, added_by, created_at FROM custom_users ORDER BY first_name").fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ── App Submissions ──
+
+def submit_app(slug, name, description, icon, port, repo_url, env_keys, submitted_by):
+    """Submit a new app or update an existing one for review.
+    If the slug already exists and is live/approved/error, resets it to pending (update flow).
+    """
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT id, status FROM app_submissions WHERE slug = ?", (slug,)
+    ).fetchone()
+
+    if existing:
+        if existing["status"] in ("live", "approved", "error"):
+            # Update flow — reset to pending with new details
+            conn.execute(
+                """UPDATE app_submissions
+                   SET name = ?, description = ?, icon = ?, port = ?, repo_url = ?, env_keys = ?,
+                       submitted_by = ?, status = 'pending',
+                       reviewed_by = NULL, reviewed_at = NULL,
+                       submitted_at = datetime('now')
+                   WHERE slug = ?""",
+                (name, description, icon, port, repo_url, env_keys, submitted_by, slug),
+            )
+            conn.commit()
+            conn.close()
+            return {"status": "submitted", "update": True}
+        elif existing["status"] == "pending":
+            conn.close()
+            return {"error": f"App '{slug}' already has a pending submission"}
+        elif existing["status"] == "rejected":
+            # Allow resubmission after rejection
+            conn.execute(
+                """UPDATE app_submissions
+                   SET name = ?, description = ?, icon = ?, port = ?, repo_url = ?, env_keys = ?,
+                       submitted_by = ?, status = 'pending',
+                       reviewed_by = NULL, reviewed_at = NULL,
+                       submitted_at = datetime('now')
+                   WHERE slug = ?""",
+                (name, description, icon, port, repo_url, env_keys, submitted_by, slug),
+            )
+            conn.commit()
+            conn.close()
+            return {"status": "submitted", "resubmit": True}
+
+    try:
+        conn.execute(
+            """INSERT INTO app_submissions (slug, name, description, icon, port, repo_url, env_keys, submitted_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (slug, name, description, icon, port, repo_url, env_keys, submitted_by),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return {"error": f"App slug '{slug}' already exists"}
+    conn.close()
+    return {"status": "submitted"}
+
+
+def get_pending_submissions():
+    """Get all pending app submissions."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM app_submissions WHERE status = 'pending' ORDER BY submitted_at DESC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_all_submissions():
+    """Get all app submissions regardless of status."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM app_submissions ORDER BY submitted_at DESC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def approve_submission(submission_id, reviewed_by):
+    """Approve an app submission and register it."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM app_submissions WHERE id = ? AND status = 'pending'",
+        (submission_id,),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return {"error": "Submission not found or already reviewed"}
+
+    # Mark as approved (will be set to 'live' after deploy callback)
+    conn.execute(
+        "UPDATE app_submissions SET status = 'approved', reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?",
+        (reviewed_by, submission_id),
+    )
+    # Register the app
+    conn.execute(
+        "INSERT OR REPLACE INTO app_registry (slug, name, description) VALUES (?, ?, ?)",
+        (row["slug"], row["name"], row["description"]),
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "approved", "slug": row["slug"], "port": row["port"], "repo_url": row["repo_url"]}
+
+
+def mark_submission_live(submission_id):
+    """Mark a submission as live after successful deploy."""
+    conn = get_db()
+    conn.execute(
+        "UPDATE app_submissions SET status = 'live' WHERE id = ?",
+        (submission_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_submission_error(submission_id):
+    """Mark a submission as errored after failed deploy."""
+    conn = get_db()
+    conn.execute(
+        "UPDATE app_submissions SET status = 'error' WHERE id = ?",
+        (submission_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def reject_submission(submission_id, reviewed_by):
+    """Reject an app submission."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT 1 FROM app_submissions WHERE id = ? AND status = 'pending'",
+        (submission_id,),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return {"error": "Submission not found or already reviewed"}
+
+    conn.execute(
+        "UPDATE app_submissions SET status = 'rejected', reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?",
+        (reviewed_by, submission_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "rejected"}
+
+
+def delete_submission(submission_id):
+    """Delete an app submission and its registry entry."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT slug, status FROM app_submissions WHERE id = ?",
+        (submission_id,),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return {"error": "Submission not found"}
+
+    slug = row["slug"]
+
+    # Remove from app_registry
+    conn.execute("DELETE FROM app_registry WHERE slug = ?", (slug,))
+    # Remove the submission
+    conn.execute("DELETE FROM app_submissions WHERE id = ?", (submission_id,))
+    conn.commit()
+    conn.close()
+    return {"status": "deleted", "slug": slug, "was_live": row["status"] == "live"}
+
+
+def edit_submission(submission_id, name=None, description=None, icon=None, port=None, repo_url=None, env_keys=None):
+    """Edit fields on an existing submission."""
+    conn = get_db()
+    row = conn.execute("SELECT * FROM app_submissions WHERE id = ?", (submission_id,)).fetchone()
+    if not row:
+        conn.close()
+        return {"error": "Submission not found"}
+
+    updates = {}
+    if name is not None:
+        updates["name"] = name
+    if description is not None:
+        updates["description"] = description
+    if icon is not None:
+        updates["icon"] = icon
+    if port is not None:
+        updates["port"] = port
+    if repo_url is not None:
+        updates["repo_url"] = repo_url
+    if env_keys is not None:
+        updates["env_keys"] = env_keys
+
+    if not updates:
+        conn.close()
+        return {"error": "No fields to update"}
+
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [submission_id]
+    conn.execute(f"UPDATE app_submissions SET {set_clause} WHERE id = ?", values)
+
+    # Also update app_registry if name or description changed
+    if "name" in updates or "description" in updates:
+        conn.execute(
+            "UPDATE app_registry SET name = COALESCE(?, name), description = COALESCE(?, description) WHERE slug = ?",
+            (updates.get("name"), updates.get("description"), row["slug"]),
+        )
+
+    conn.commit()
+    conn.close()
+    return {"status": "updated"}
 
 
 # Initialize on import

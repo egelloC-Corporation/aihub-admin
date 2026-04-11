@@ -21,7 +21,83 @@ The platform layer for [aihub.egelloc.com](https://aihub.egelloc.com) — authen
 | `hub-navbar.js` | Shared auth widget injected into all apps |
 | `requirements.txt` | Python dependencies |
 
-## Deployment
+## Local Development (Docker)
+
+Run the full platform locally with Docker Compose.
+
+### Prerequisites
+
+- Docker and Docker Compose
+- A `.env` file (copy from `.env.example`)
+
+### Start everything
+
+```bash
+cp .env.example .env
+# Fill in at minimum: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, FLASK_SECRET_KEY
+
+docker compose up --build
+```
+
+This starts:
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| Nginx | http://localhost | Reverse proxy (entry point) |
+| Admin panel | http://localhost:5051 | Flask server (also at http://localhost/admin) |
+| Deploy service | http://localhost:5001 | Handles app deploys |
+| Postgres | localhost:5432 | Shared DB for deployed apps |
+
+### Test a deploy (dry run)
+
+```bash
+# Dry run — prints what would happen without building anything
+python scripts/deploy.py deploy \
+  --app-name testapp \
+  --port 3100 \
+  --local-path ./starter-template \
+  --dry-run
+```
+
+### Deploy the starter template locally
+
+```bash
+# Full deploy against local Docker
+python scripts/deploy.py deploy \
+  --app-name testapp \
+  --port 3100 \
+  --local-path ./starter-template
+
+# Verify it's running
+curl http://localhost/testapp/health
+
+# Clean up
+python scripts/deploy.py undeploy --app-name testapp
+```
+
+### Manage Nginx routes manually
+
+```bash
+python scripts/nginx_config.py list
+python scripts/nginx_config.py add myapp 3005 --dry-run
+python scripts/nginx_config.py remove myapp --dry-run
+```
+
+### Provision a DB user manually
+
+```bash
+python scripts/db_provision.py create myapp --dry-run
+python scripts/db_provision.py drop myapp --dry-run
+```
+
+### Stop everything
+
+```bash
+docker compose down           # stop containers
+docker compose down -v        # stop and delete DB data
+```
+
+## Production Deployment
 
 Runs on the DigitalOcean droplet at `165.232.155.132`, managed by PM2.
 

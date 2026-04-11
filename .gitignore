@@ -5,3 +5,9 @@ venv/
 *.db
 readonly_db_users.json
 ssh_aliases.json
+
+# Infrastructure
+apps/
+nginx/apps/*.conf
+!nginx/apps/.gitkeep
+postgres_data/

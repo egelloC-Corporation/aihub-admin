@@ -375,6 +375,276 @@
     .bulk-btn.grant:hover { background: var(--green-dim); }
     .bulk-btn.revoke { border-color: var(--red); color: var(--red); }
     .bulk-btn.revoke:hover { background: var(--red-dim); }
+
+    /* ── App Registry Tab ── */
+    .registry-layout {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+    }
+    @media (max-width: 900px) { .registry-layout { grid-template-columns: 1fr; } }
+
+    .registry-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px;
+    }
+    .registry-card h3 {
+      font-size: 16px; font-weight: 700; margin-bottom: 4px;
+    }
+    .registry-card .subtitle {
+      font-size: 13px; color: var(--text-muted); margin-bottom: 20px;
+    }
+
+    /* Getting started guide */
+    .getting-started {
+      grid-column: 1 / -1; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px 24px; margin-bottom: 20px;
+    }
+    .getting-started-title {
+      font-size: 15px; font-weight: 700; margin-bottom: 6px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .getting-started-title .badge {
+      font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+      background: var(--accent-dim); color: var(--accent); text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .getting-started .lead {
+      font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;
+    }
+    .getting-started .lead a {
+      color: var(--accent); text-decoration: none; font-weight: 600;
+    }
+    .getting-started .lead a:hover { text-decoration: underline; }
+    .prompt-box {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 14px 16px; font-size: 13px; line-height: 1.7; color: var(--text);
+      cursor: pointer; position: relative; transition: border-color 0.15s;
+    }
+    .prompt-box:hover { border-color: var(--accent); }
+    .prompt-box-label {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;
+    }
+    .prompt-box-label span:first-child {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--accent);
+    }
+    .prompt-box-label .copy-hint {
+      font-size: 11px; color: var(--text-dim); font-weight: 400;
+    }
+    .prompt-box-label .copied {
+      color: var(--green);
+    }
+    .prompt-text {
+      font-family: inherit; white-space: pre-wrap; color: var(--text-muted);
+    }
+    .getting-started .after-prompt {
+      font-size: 12px; color: var(--text-dim); margin-top: 12px; line-height: 1.6;
+    }
+    .getting-started .after-prompt code {
+      background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 11px; color: var(--text);
+    }
+
+    .form-group { margin-bottom: 16px; }
+    .form-group label {
+      display: block; font-size: 11px; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; font-weight: 600;
+    }
+    .form-group input, .form-group textarea {
+      width: 100%; background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); padding: 9px 12px; border-radius: 8px; font-size: 14px;
+      outline: none; font-family: inherit;
+    }
+    .form-group input:focus, .form-group textarea:focus { border-color: var(--accent); }
+    .form-group input::placeholder, .form-group textarea::placeholder { color: var(--text-dim); }
+    .form-group textarea { resize: vertical; min-height: 60px; font-size: 13px; }
+    .form-group .hint {
+      font-size: 11px; color: var(--text-dim); margin-top: 4px;
+    }
+
+    /* Tooltip */
+    .tooltip-wrap {
+      position: relative; display: inline-block; margin-left: 5px; vertical-align: middle;
+    }
+    .tooltip-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 15px; height: 15px; border-radius: 50%;
+      background: var(--border); color: var(--text-muted);
+      font-size: 10px; font-weight: 700; cursor: help;
+      line-height: 1; font-style: normal; font-family: -apple-system, sans-serif;
+    }
+    .tooltip-icon:hover { background: var(--accent-dim); color: var(--accent); }
+    .tooltip-bubble {
+      display: none; position: absolute; bottom: calc(100% + 8px); left: 50%;
+      transform: translateX(-50%); width: 310px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px; font-size: 12px; line-height: 1.6;
+      color: var(--text-muted); box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+      z-index: 20; font-weight: 400; text-transform: none; letter-spacing: 0;
+    }
+    .tooltip-bubble code {
+      background: var(--bg); padding: 1px 5px; border-radius: 3px;
+      font-size: 11px; color: var(--text);
+    }
+    .tooltip-bubble .claude-prompt {
+      display: block; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 8px 10px; margin-top: 8px;
+      font-size: 11px; line-height: 1.5; color: var(--text);
+      font-style: italic; cursor: pointer; position: relative;
+    }
+    .tooltip-bubble .claude-prompt::before {
+      content: "Ask Claude:"; display: block;
+      font-size: 10px; font-weight: 600; color: var(--accent);
+      margin-bottom: 3px; font-style: normal; text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .tooltip-wrap:hover .tooltip-bubble { display: block; }
+    .tooltip-bubble::after {
+      content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+      border: 6px solid transparent; border-top-color: var(--border);
+    }
+
+    .submit-btn {
+      background: var(--accent); border: none; color: white;
+      padding: 10px 24px; border-radius: 8px; font-size: 14px; cursor: pointer;
+      font-family: inherit; font-weight: 600; transition: opacity 0.15s; width: 100%;
+    }
+    .submit-btn:hover { opacity: 0.85; }
+    .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .queue-list { display: flex; flex-direction: column; gap: 10px; }
+    .queue-item {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px 16px;
+    }
+    .queue-item-header {
+      display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;
+    }
+    .queue-item-name { font-weight: 700; font-size: 15px; }
+    .queue-item-slug {
+      font-family: monospace; font-size: 12px; color: var(--accent);
+      background: var(--accent-dim); padding: 2px 8px; border-radius: 4px;
+    }
+    .queue-item-desc {
+      font-size: 13px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4;
+    }
+    .queue-item-meta {
+      display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim);
+      margin-bottom: 10px;
+    }
+    .queue-item-meta code {
+      background: var(--surface-hover); padding: 1px 6px; border-radius: 4px; font-size: 11px; color: var(--text);
+      word-break: break-all;
+    }
+    .queue-item-icon { font-size: 20px; margin-right: 6px; vertical-align: middle; }
+    .queue-item-actions { display: flex; gap: 8px; }
+    .queue-btn {
+      padding: 6px 16px; border-radius: 6px; font-size: 12px; cursor: pointer;
+      font-family: inherit; font-weight: 600; border: 1px solid; transition: all 0.15s;
+    }
+    .queue-btn.approve {
+      background: var(--green-dim); border-color: var(--green); color: var(--green);
+    }
+    .queue-btn.approve:hover { background: var(--green); color: white; }
+    .queue-btn.reject {
+      background: var(--red-dim); border-color: var(--red); color: var(--red);
+    }
+    .queue-btn.reject:hover { background: var(--red); color: white; }
+
+    .status-badge {
+      display: inline-block; font-size: 11px; padding: 3px 10px; border-radius: 10px;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .status-badge.pending { background: #f59e0b20; color: #f59e0b; }
+    .status-badge.approved { background: var(--accent-dim); color: var(--accent); }
+    .status-badge.live { background: var(--green-dim); color: var(--green); }
+    .status-badge.error { background: var(--red-dim); color: var(--red); }
+    .status-badge.rejected { background: var(--red-dim); color: var(--red); }
+
+    .queue-empty {
+      text-align: center; padding: 40px 20px; color: var(--text-dim); font-size: 14px;
+    }
+
+    .form-success {
+      background: var(--green-dim); border: 1px solid var(--green);
+      color: var(--green); padding: 12px 16px; border-radius: 8px;
+      font-size: 13px; margin-bottom: 16px; display: none;
+    }
+    .form-error-msg {
+      color: var(--red); font-size: 12px; margin-top: 6px; display: none;
+    }
+
+    .deploy-result {
+      margin-top: 10px; padding: 10px 14px; border-radius: 6px;
+      font-size: 12px; line-height: 1.6; font-family: monospace;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .deploy-result.success { background: var(--green-dim); border: 1px solid var(--green); color: var(--green); }
+    .deploy-result.failure { background: var(--red-dim); border: 1px solid var(--red); color: var(--red); }
+    .deploy-result.dry-run { background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent); }
+    .deploy-result.test-pass { background: var(--green-dim); border: 1px solid var(--green); color: var(--green); }
+    .deploy-result.test-warn { background: #332b00; border: 1px solid #f0c000; color: #f0c000; }
+    .deploy-result.test-fail { background: var(--red-dim); border: 1px solid var(--red); color: var(--red); }
+    .test-check { margin: 2px 0; }
+    .test-check .pass { color: var(--green); }
+    .test-check .fail { color: var(--red); }
+    .test-check .warn { color: #f0c000; }
+
+    .queue-btn.deploy {
+      background: var(--accent-dim); border-color: var(--accent); color: var(--accent);
+    }
+    .queue-btn.deploy:hover { background: var(--accent); color: white; }
+    .queue-btn.undeploy {
+      background: none; border-color: var(--red); color: var(--red);
+    }
+    .queue-btn.undeploy:hover { background: var(--red); color: white; }
+    .queue-btn.test {
+      background: none; border-color: var(--text-dim); color: var(--text-dim);
+    }
+    .queue-btn.test:hover { border-color: var(--text-muted); color: var(--text-muted); }
+    .queue-btn.edit {
+      background: none; border-color: var(--text-dim); color: var(--text-dim);
+    }
+    .queue-btn.edit:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Edit modal */
+    .edit-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center; }
+    .edit-modal { background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:420px;max-width:90vw; }
+    .edit-modal h3 { margin:0 0 16px; color:var(--text); }
+    .edit-modal .form-group { margin-bottom:12px; }
+    .edit-modal label { display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px; }
+    .edit-modal input, .edit-modal textarea { width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:13px; }
+    .edit-modal textarea { min-height:60px;resize:vertical; }
+    .edit-modal-actions { display:flex;gap:8px;justify-content:flex-end;margin-top:16px; }
+    .edit-modal-actions button { padding:8px 20px;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit;font-weight:600;border:1px solid; }
+    .edit-save { background:var(--accent-dim);border-color:var(--accent);color:var(--accent); }
+    .edit-save:hover { background:var(--accent);color:#fff; }
+    .edit-cancel { background:none;border-color:var(--border);color:var(--text-muted); }
+    .edit-cancel:hover { border-color:var(--text-muted);color:var(--text); }
+
+    /* Emoji picker */
+    .emoji-picker-btn {
+      width:44px;height:44px;font-size:24px;border-radius:10px;border:1px solid var(--border);
+      background:var(--surface-hover);cursor:pointer;display:flex;align-items:center;justify-content:center;
+      transition:border-color 0.15s;flex-shrink:0;
+    }
+    .emoji-picker-btn:hover { border-color:var(--accent); }
+    .emoji-picker-popup {
+      display:none;position:absolute;top:50px;left:0;z-index:100;
+      background:var(--surface);border:1px solid var(--border);border-radius:10px;
+      padding:8px;width:268px;box-shadow:0 8px 24px rgba(0,0,0,0.4);
+    }
+    .emoji-picker-popup.open { display:block; }
+    .emoji-search {
+      width:100%;padding:7px 10px;margin-bottom:6px;background:var(--bg);
+      border:1px solid var(--border);border-radius:6px;color:var(--text);
+      font-size:13px;font-family:inherit;outline:none;
+    }
+    .emoji-search:focus { border-color:var(--accent); }
+    .emoji-picker-grid { display:grid;grid-template-columns:repeat(7,1fr);gap:1px;max-height:200px;overflow-y:auto; }
+    .emoji-picker-grid::-webkit-scrollbar { width:6px; }
+    .emoji-picker-grid::-webkit-scrollbar-thumb { background:var(--border);border-radius:3px; }
+    .emoji-picker-grid span {
+      font-size:22px;padding:5px;text-align:center;border-radius:6px;cursor:pointer;
+      transition:background 0.1s;
+    }
+    .emoji-picker-grid span:hover { background:var(--surface-hover); }
   </style>
 </head>
 <body>
@@ -388,8 +658,9 @@
 
 <div class="container">
   <div class="tabs">
-    <button class="tab active" onclick="switchTab('permissions')">Permissions</button>
-    <button class="tab" onclick="switchTab('infrastructure')">Infrastructure Access</button>
+    <button class="tab active" data-tab="permissions" onclick="switchTab('permissions')">Permissions</button>
+    <button class="tab" data-tab="infrastructure" onclick="switchTab('infrastructure')">Infrastructure Access</button>
+    <button class="tab" data-tab="registry" onclick="switchTab('registry')">App Registry</button>
   </div>
 
   <div class="tab-panel active" id="tab-permissions">
@@ -500,6 +771,117 @@
 
     </div>
   </div><!-- end tab-infrastructure -->
+
+  <div class="tab-panel" id="tab-registry">
+
+    <div class="getting-started">
+      <div class="getting-started-title">Getting started <span class="badge">Before you register</span></div>
+      <div class="lead">
+        Your app lives in its own repo — you don't need to clone anything else. Open Claude in your project folder and paste the prompt below. It will pull the auth SDK from <a href="https://github.com/victor-egelloc/aihub-admin/tree/main/starter-template" target="_blank">the starter template on GitHub</a>, wire it into your app, and give you the exact values for the registration form.
+      </div>
+      <div class="prompt-box" onclick="copyPrompt(this)">
+        <div class="prompt-box-label">
+          <span>Paste this into Claude from your project folder</span>
+          <span class="copy-hint" id="copyHint">Click to copy</span>
+        </div>
+        <div class="prompt-text" id="claudePrompt">I need to connect my app to AI Hub SSO so it can be deployed at aihub.egelloc.com.
+
+Grab the auth SDK from the starter template at https://github.com/victor-egelloc/aihub-admin/tree/main/starter-template — specifically aihub-auth.js (Node) or aihub_auth.py (Python, needs `requests` package). Add it to my project.
+
+Then:
+1. Wire the auth middleware into my app's routes (loginRequired for general auth, requirePermission("APP_SLUG") for app-specific access)
+2. Add a /health endpoint that returns { "status": "ok" } if one doesn't exist
+3. Add a Dockerfile if one doesn't exist (the deploy system builds a Docker image from it)
+4. Create or update my .env.example with these keys:
+   - APP_SLUG (my app's slug, lowercase, no spaces)
+   - AIHUB_DEV_EMAIL (set to my email so auth works locally without SSO)
+   - PORT (the port my app listens on)
+5. Make sure the app starts cleanly and test that protected routes return user info
+6. If this repo is private, make sure it's accessible to the egelloc GitHub org — the deploy system uses a GitHub token scoped to the org
+7. When done, tell me exactly what to fill in for the AI Hub registration form:
+   - App slug
+   - Port number
+   - Git repo URL (must be accessible — the form validates this on submit)
+   - List of environment variable keys my app needs
+
+Note: If you're updating an existing app, just resubmit with the same slug — it will go through the approval flow again as an update.</div>
+      </div>
+      <div class="after-prompt">Claude will adapt the auth to whatever stack you're using (Express, Flask, FastAPI, etc.) and tell you what to put in each field below.</div>
+    </div>
+
+    <div class="registry-layout">
+
+      <!-- Register an App form -->
+      <div class="registry-card">
+        <h3>Register an App</h3>
+        <div class="subtitle">Submit a new app for admin review. Once approved, it will be deployed to AI Hub.</div>
+
+        <div class="form-success" id="submitSuccess">App submitted for review!</div>
+
+        <div class="form-group">
+          <label>App Slug</label>
+          <input type="text" id="appSlug" placeholder="my-app" pattern="[a-z][a-z0-9-]+" maxlength="31">
+          <div class="hint">Lowercase, no spaces. Used in URL: /my-app</div>
+        </div>
+        <div class="form-group">
+          <label>App Name</label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="emoji-picker-wrap" style="position:relative;">
+              <button type="button" id="appIconBtn" class="emoji-picker-btn" onclick="toggleEmojiPicker('appIcon')" title="Pick an icon">
+                <span id="appIconPreview">📦</span>
+              </button>
+              <div class="emoji-picker-popup" id="appIconPopup"></div>
+            </div>
+            <input type="text" id="appName" placeholder="My App" style="flex:1;">
+            <input type="hidden" id="appIcon" value="">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea id="appDesc" placeholder="What does this app do? This shows on the launcher page."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Local Port
+            <span class="tooltip-wrap">
+              <span class="tooltip-icon">?</span>
+              <span class="tooltip-bubble">The port your app's server listens on (1024–65535). Check your startup file for <code>app.listen()</code> or <code>app.run()</code>.<span class="claude-prompt" onclick="navigator.clipboard.writeText(this.innerText.replace('Ask Claude:\n',''))">What port does my app listen on? Check server.js, app.py, or similar entry points. Reply with just the number.</span></span>
+            </span>
+          </label>
+          <input type="number" id="appPort" placeholder="3000" min="1024" max="65535">
+        </div>
+        <div class="form-group">
+          <label>Git Repository URL</label>
+          <input type="text" id="appRepoUrl" placeholder="https://github.com/org/my-app.git">
+          <div class="hint">Clone URL for deployment. Leave blank if using a local path.</div>
+        </div>
+        <div class="form-group">
+          <label>Environment Variable Keys
+            <span class="tooltip-wrap">
+              <span class="tooltip-icon">?</span>
+              <span class="tooltip-bubble">List every env var your app needs to run. One key per line, names only — an admin will set the real values during deployment.<span class="claude-prompt" onclick="navigator.clipboard.writeText(this.innerText.replace('Ask Claude:\n',''))">List every environment variable my app reads from process.env or os.environ. Return only the key names, one per line, no values. Example format:
+DATABASE_URL
+API_KEY
+SECRET_TOKEN</span></span>
+            </span>
+          </label>
+          <textarea id="appEnvKeys" placeholder="DATABASE_URL&#10;API_KEY&#10;SECRET_TOKEN" style="font-family:monospace;"></textarea>
+        </div>
+        <div class="form-error-msg" id="submitError"></div>
+        <button class="submit-btn" id="submitAppBtn" onclick="submitApp()">Submit for Review</button>
+      </div>
+
+      <!-- Approval Queue -->
+      <div class="registry-card">
+        <h3>Approval Queue</h3>
+        <div class="subtitle">Review and approve pending app submissions. Deploy separately after approval.</div>
+        <div class="queue-list" id="queueList">
+          <div class="queue-empty">Loading...</div>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- end tab-registry -->
+
 </div><!-- end container -->
 
 <div class="modal-overlay" id="addUserModal">
@@ -798,17 +1180,53 @@ document.getElementById("roleFilter").addEventListener("change", render);
 document.getElementById("accessFilter").addEventListener("change", render);
 
 // ── Tab switching ──
-function switchTab(tab) {
+var TAB_PATHS = {
+  permissions: "/admin",
+  infrastructure: "/admin/infrastructure",
+  registry: "/admin/apps",
+};
+var PATH_TO_TAB = {
+  "/admin": "permissions",
+  "/admin/infrastructure": "infrastructure",
+  "/admin/apps": "registry",
+};
+
+function switchTab(tab, pushState) {
+  console.log("switchTab called:", tab);
   document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
   document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
-  document.querySelector(`.tab-panel#tab-${tab}`).classList.add("active");
-  event.target.classList.add("active");
+  var panel = document.querySelector('.tab-panel#tab-' + tab);
+  var button = document.querySelector('.tab[data-tab="' + tab + '"]');
+  if (panel) panel.classList.add("active"); else console.error("No panel for tab:", tab);
+  if (button) button.classList.add("active"); else console.error("No button for tab:", tab);
+
+  if (pushState !== false && TAB_PATHS[tab]) {
+    history.pushState({ tab: tab }, "", TAB_PATHS[tab]);
+  }
 
   if (tab === "infrastructure") {
     loadSSHKeys();
     loadDBUsers();
   }
+  if (tab === "registry") {
+    loadSubmissions();
+  }
 }
+
+// Restore tab from URL on page load
+(function() {
+  var path = window.location.pathname.replace(/\/+$/, "") || "/admin";
+  var tab = PATH_TO_TAB[path] || "permissions";
+  if (tab !== "permissions") {
+    switchTab(tab, false);
+  }
+})();
+
+// Handle browser back/forward
+window.addEventListener("popstate", function(e) {
+  var tab = (e.state && e.state.tab) || PATH_TO_TAB[window.location.pathname.replace(/\/+$/, "")] || "permissions";
+  switchTab(tab, false);
+});
 
 // ── SSH Keys ──
 async function loadSSHKeys() {
@@ -1177,7 +1595,635 @@ async function dropDbUser(username, dbSlug) {
   loadDBUsers();
 }
 
-loadData();
+loadData().catch(function(e) { console.warn("loadData failed:", e); });
+
+// ── App Registry ──
+
+var EMOJI_DATA = [
+  // Tech & Development
+  {e:"\ud83d\udcbb",t:"laptop computer dev code"}, {e:"\ud83d\udcf1",t:"phone mobile app"}, {e:"\ud83d\ude80",t:"rocket launch deploy ship fast"},
+  {e:"\u2699\ufe0f",t:"gear settings config admin"}, {e:"\ud83d\udd27",t:"wrench tool fix repair"}, {e:"\ud83d\udee0\ufe0f",t:"hammer tools build"},
+  {e:"\ud83e\udd16",t:"robot ai bot automation"}, {e:"\ud83e\uddea",t:"test tube experiment lab science"}, {e:"\ud83d\udd0d",t:"search find magnifying glass"},
+  {e:"\ud83d\udd17",t:"link chain url connection"}, {e:"\ud83d\udcbe",t:"disk save storage database"}, {e:"\ud83d\udcc2",t:"folder file directory"},
+  {e:"\u26a1",t:"lightning bolt fast speed power"}, {e:"\ud83d\udd12",t:"lock security auth password"}, {e:"\ud83d\udd11",t:"key access token secret"},
+  {e:"\ud83c\udf10",t:"globe web internet world"}, {e:"\ud83d\udce1",t:"satellite antenna signal api"},
+  // Data & Analytics
+  {e:"\ud83d\udcca",t:"chart bar graph analytics data"}, {e:"\ud83d\udcc8",t:"chart up trending growth"}, {e:"\ud83d\udcc9",t:"chart down decrease"},
+  {e:"\ud83d\udcb0",t:"money bag finance revenue"}, {e:"\ud83d\udcb3",t:"credit card payment billing"}, {e:"\ud83d\udcb5",t:"dollar money cash"},
+  // Communication
+  {e:"\ud83d\udcac",t:"chat message speech bubble"}, {e:"\ud83d\udce7",t:"email inbox mail message"}, {e:"\ud83d\udce8",t:"envelope incoming mail"},
+  {e:"\ud83d\udd14",t:"bell notification alert"}, {e:"\ud83d\udce2",t:"megaphone announcement broadcast"}, {e:"\ud83d\udcde",t:"phone call telephone"},
+  // Content & Docs
+  {e:"\ud83d\udcdd",t:"memo note write edit document"}, {e:"\ud83d\udccb",t:"clipboard notes briefer checklist"}, {e:"\ud83d\udcda",t:"books library knowledge docs"},
+  {e:"\ud83d\udcd3",t:"notebook journal log"}, {e:"\ud83d\udcd6",t:"book open read manual"}, {e:"\ud83d\udce6",t:"package box deploy ship"},
+  {e:"\ud83d\udcc5",t:"calendar date schedule event"}, {e:"\ud83d\udccf",t:"ruler measure metrics"}, {e:"\ud83c\udfa8",t:"art palette design creative"},
+  // People & Education
+  {e:"\ud83c\udf93",t:"graduation cap education student school"}, {e:"\ud83d\udc68\u200d\ud83c\udfeb",t:"teacher coach instructor mentor"},
+  {e:"\ud83d\udc65",t:"people team group users"}, {e:"\ud83e\uddd1\u200d\ud83d\udcbb",t:"technologist developer coder"},
+  {e:"\ud83e\udd1d",t:"handshake deal partner crm"}, {e:"\ud83c\udfc6",t:"trophy award win achievement"},
+  // Status & Symbols
+  {e:"\ud83d\udca1",t:"light bulb idea insight"}, {e:"\ud83c\udfaf",t:"target goal aim bullseye"}, {e:"\u2705",t:"check mark done complete yes"},
+  {e:"\ud83c\udf1f",t:"star glow highlight feature"}, {e:"\ud83d\udd25",t:"fire hot trending popular"}, {e:"\u2764\ufe0f",t:"heart love favorite"},
+  {e:"\ud83c\udfe0",t:"house home dashboard main"}, {e:"\ud83c\udfeb",t:"school building campus education"},
+  // Colors
+  {e:"\ud83d\udfe2",t:"green circle status"}, {e:"\ud83d\udfe1",t:"yellow circle status"}, {e:"\ud83d\udd35",t:"blue circle status"},
+  {e:"\ud83d\udfe3",t:"purple circle status"}, {e:"\ud83d\udd34",t:"red circle status"}, {e:"\ud83d\udfe0",t:"orange circle status"},
+  // Misc
+  {e:"\ud83e\uddee",t:"infinity loop cycle"}, {e:"\ud83e\udde9",t:"puzzle piece integration plugin"}, {e:"\ud83d\uddfa\ufe0f",t:"map navigation location"},
+  {e:"\ud83d\udcf8",t:"camera photo image media"}, {e:"\ud83c\udfac",t:"clapper video film record"}, {e:"\ud83c\udf99\ufe0f",t:"microphone audio voice podcast"},
+  {e:"\ud83d\udd52",t:"clock time schedule timer"}, {e:"\ud83e\uddca",t:"ice cube cool freeze"},
+  // More Tech
+  {e:"\ud83d\udda5\ufe0f",t:"desktop monitor screen display"}, {e:"\u2328\ufe0f",t:"keyboard type input"}, {e:"\ud83d\uddb1\ufe0f",t:"mouse click cursor"},
+  {e:"\ud83e\uddf0",t:"toolbox toolkit suite"}, {e:"\ud83e\uddf2",t:"magnet attract pull"}, {e:"\ud83e\uddeb",t:"bandage fix patch hotfix"},
+  {e:"\ud83d\udcdf",t:"pager legacy system"}, {e:"\ud83d\udcbf",t:"cd disc media"},
+  // More Data
+  {e:"\ud83d\udcb1",t:"currency exchange rate forex"}, {e:"\ud83d\udcb2",t:"heavy dollar sign price cost"},
+  {e:"\ud83d\udcc7",t:"chart card report kpi"}, {e:"\ud83d\udcf0",t:"newspaper feed news update"},
+  // More Communication
+  {e:"\ud83d\udce9",t:"inbox tray receive"}, {e:"\ud83d\udcea",t:"outbox tray send"}, {e:"\ud83d\udceb",t:"mailbox letterbox"},
+  {e:"\ud83d\udcec",t:"mailbox open incoming"}, {e:"\ud83d\udcef",t:"postal horn notify announce"},
+  {e:"\ud83d\udce3",t:"cheering megaphone shout"}, {e:"\ud83d\udcf2",t:"mobile incoming call ring"},
+  {e:"\ud83d\udcfa",t:"tv television display broadcast screen"}, {e:"\ud83d\udcfb",t:"radio stream audio"},
+  // More Docs
+  {e:"\ud83d\udcd1",t:"bookmark tab save"}, {e:"\ud83d\udcd2",t:"ledger accounting finance book"}, {e:"\ud83d\udcd4",t:"notebook decorative"},
+  {e:"\ud83d\udcd5",t:"book closed reference"}, {e:"\ud83d\udcd7",t:"green book guide"}, {e:"\ud83d\udcd8",t:"blue book docs"},
+  {e:"\ud83d\udcd9",t:"orange book handbook"}, {e:"\ud83d\udcdc",t:"scroll ancient history legacy"}, {e:"\ud83d\udcc3",t:"page curl document"},
+  {e:"\ud83d\udcc4",t:"page face up document"}, {e:"\ud83d\udcc6",t:"tearoff calendar daily"}, {e:"\ud83d\udcce",t:"paperclip attach file"},
+  {e:"\ud83d\udccc",t:"pushpin pin location mark"}, {e:"\ud83d\udccd",t:"round pushpin map pin"}, {e:"\ud83d\udcd0",t:"triangle ruler geometry math"},
+  {e:"\u2702\ufe0f",t:"scissors cut trim crop"}, {e:"\ud83d\udcf7",t:"camera photo snapshot"},
+  // More People
+  {e:"\ud83d\udc68\u200d\ud83d\ude80",t:"astronaut space explorer"}, {e:"\ud83d\udc68\u200d\ud83d\udcbc",t:"office worker business"},
+  {e:"\ud83d\udc68\u200d\ud83c\udf93",t:"student learner graduate"}, {e:"\ud83d\udc68\u200d\ud83d\udd2c",t:"scientist researcher analyst"},
+  {e:"\ud83e\uddd1\u200d\ud83c\udfa8",t:"artist designer creative"}, {e:"\ud83e\udd37",t:"shrug idk unknown"},
+  {e:"\ud83d\ude4b",t:"hand raised volunteer ask"}, {e:"\ud83d\ude4f",t:"pray thanks high five"},
+  {e:"\ud83d\udcaa",t:"muscle strong power flex"},
+  // More Symbols
+  {e:"\u274c",t:"cross no cancel delete"}, {e:"\u2757",t:"exclamation important urgent"}, {e:"\u2753",t:"question help faq support"},
+  {e:"\u26a0\ufe0f",t:"warning caution danger"}, {e:"\ud83d\udeab",t:"no entry forbidden banned"}, {e:"\u267b\ufe0f",t:"recycle refresh renew"},
+  {e:"\ud83c\udd95",t:"new badge fresh latest"}, {e:"\ud83c\udd99",t:"up update upgrade"}, {e:"\u2139\ufe0f",t:"info information about help"},
+  {e:"\ud83d\udea8",t:"siren emergency critical alert"}, {e:"\ud83d\udea6",t:"traffic light status signal"},
+  {e:"\ud83c\udfc1",t:"checkered flag finish done"}, {e:"\ud83d\udea9",t:"flag mark milestone"},
+  // More Colors & Shapes
+  {e:"\u26aa",t:"white circle empty blank"}, {e:"\u26ab",t:"black circle dark filled"}, {e:"\ud83d\udfe4",t:"brown circle earth"},
+  {e:"\ud83d\udd36",t:"diamond orange large"}, {e:"\ud83d\udd37",t:"diamond blue large"}, {e:"\ud83d\udd38",t:"diamond orange small"}, {e:"\ud83d\udd39",t:"diamond blue small"},
+  // Nature
+  {e:"\ud83c\udf1e",t:"sun sunny bright day"}, {e:"\ud83c\udf19",t:"moon night dark"}, {e:"\u2b50",t:"star favorite rated"},
+  {e:"\ud83c\udf08",t:"rainbow colorful spectrum"}, {e:"\u2600\ufe0f",t:"sun warm hot bright"},
+  {e:"\u26c5",t:"cloud partly cloudy"}, {e:"\ud83c\udf27\ufe0f",t:"rain cloud storm"}, {e:"\u2744\ufe0f",t:"snowflake cold freeze winter"},
+  {e:"\ud83c\udf31",t:"seedling growth new startup"}, {e:"\ud83c\udf32",t:"tree evergreen stable"}, {e:"\ud83c\udf33",t:"tree deciduous growth"},
+  {e:"\ud83c\udf35",t:"cactus desert resilient"}, {e:"\ud83c\udf3b",t:"sunflower bright happy"}, {e:"\ud83c\udf3a",t:"flower bloom blossom"},
+  {e:"\ud83c\udf40",t:"four leaf clover lucky"}, {e:"\ud83c\udf3f",t:"herb organic natural"}, {e:"\ud83c\udf41",t:"maple leaf autumn fall"},
+  // Food & Celebration
+  {e:"\u2615",t:"coffee hot beverage break"}, {e:"\ud83c\udf7a",t:"beer cheers celebrate"}, {e:"\ud83c\udf55",t:"pizza food lunch"},
+  {e:"\ud83c\udf54",t:"hamburger food meal"}, {e:"\ud83c\udf6a",t:"cookie treat snack sweet"}, {e:"\ud83c\udf82",t:"birthday cake celebrate party"},
+  {e:"\ud83c\udf89",t:"party popper celebrate confetti"}, {e:"\ud83c\udf8a",t:"confetti ball celebrate"},
+  {e:"\ud83c\udf81",t:"gift present reward"}, {e:"\ud83c\udf88",t:"balloon party celebration fun"},
+  // Places & Travel
+  {e:"\ud83c\udfdb\ufe0f",t:"classical building institution"}, {e:"\ud83c\udfe2",t:"office building corporate"},
+  {e:"\ud83c\udfe5",t:"hospital medical health"}, {e:"\ud83c\udfea",t:"store shop retail"}, {e:"\ud83c\udfe6",t:"bank finance institution"},
+  {e:"\u2708\ufe0f",t:"airplane fly travel"}, {e:"\ud83d\ude82",t:"train rail transit"}, {e:"\ud83d\ude97",t:"car automobile drive"},
+  {e:"\ud83d\udeb2",t:"bicycle bike cycle ride"}, {e:"\ud83d\udea2",t:"ship cruise boat"},
+  // Fun
+  {e:"\ud83c\udfb5",t:"music note audio sound"}, {e:"\ud83c\udfb6",t:"music notes melody song"}, {e:"\ud83c\udfae",t:"game controller play gaming"},
+  {e:"\ud83c\udfb2",t:"dice random chance game"}, {e:"\ud83c\udfad",t:"theater masks drama arts"},
+  {e:"\ud83d\udc8e",t:"gem diamond premium quality"}, {e:"\ud83d\udd2e",t:"crystal ball predict future magic"},
+  {e:"\ud83c\udfa4",t:"microphone karaoke sing"}, {e:"\ud83c\udfb8",t:"guitar music instrument rock"},
+  {e:"\ud83e\uddf1",t:"brick block build foundation"}, {e:"\ud83e\ude84",t:"magic wand wizard automate"},
+];
+
+function toggleEmojiPicker(inputId) {
+  var popup = document.getElementById(inputId + 'Popup');
+  if (popup.classList.contains('open')) {
+    popup.classList.remove('open');
+    return;
+  }
+
+  // Build picker if empty
+  if (!popup.querySelector('.emoji-picker-grid')) {
+    var html = '<input type="text" class="emoji-search" placeholder="Search emojis..." oninput="filterEmojis(\'' + inputId + '\', this.value)">';
+    html += '<div class="emoji-picker-grid" id="' + inputId + 'Grid">';
+    EMOJI_DATA.forEach(function(item) {
+      html += '<span data-tags="' + item.t + '" onclick="selectEmoji(\'' + inputId + '\', this.textContent)" title="' + item.t.split(' ').slice(0,3).join(', ') + '">' + item.e + '</span>';
+    });
+    html += '</div>';
+    popup.innerHTML = html;
+  }
+
+  // Reset search
+  var search = popup.querySelector('.emoji-search');
+  if (search) { search.value = ''; filterEmojis(inputId, ''); }
+
+  popup.classList.add('open');
+  setTimeout(function() { if (search) search.focus(); }, 50);
+
+  // Close on click outside
+  setTimeout(function() {
+    document.addEventListener('click', function handler(e) {
+      if (!popup.contains(e.target) && !e.target.closest('.emoji-picker-btn')) {
+        popup.classList.remove('open');
+        document.removeEventListener('click', handler);
+      }
+    });
+  }, 0);
+}
+
+function filterEmojis(inputId, query) {
+  var grid = document.getElementById(inputId + 'Grid');
+  if (!grid) return;
+  var q = query.toLowerCase().trim();
+  var items = grid.querySelectorAll('span');
+  items.forEach(function(span) {
+    if (!q || span.getAttribute('data-tags').indexOf(q) !== -1) {
+      span.style.display = '';
+    } else {
+      span.style.display = 'none';
+    }
+  });
+}
+
+function selectEmoji(inputId, emoji) {
+  document.getElementById(inputId).value = emoji;
+  document.getElementById(inputId + 'Preview').textContent = emoji;
+  document.getElementById(inputId + 'Popup').classList.remove('open');
+}
+
+function copyPrompt(el) {
+  var text = document.getElementById("claudePrompt").innerText;
+  navigator.clipboard.writeText(text).then(function() {
+    var hint = el.querySelector(".copy-hint");
+    hint.textContent = "Copied!";
+    hint.classList.add("copied");
+    setTimeout(function() {
+      hint.textContent = "Click to copy";
+      hint.classList.remove("copied");
+    }, 2000);
+  });
+}
+
+async function submitApp() {
+  var slug = document.getElementById("appSlug").value.trim().toLowerCase();
+  var name = document.getElementById("appName").value.trim();
+  var desc = document.getElementById("appDesc").value.trim();
+  var port = document.getElementById("appPort").value.trim();
+  var icon = document.getElementById("appIcon").value.trim();
+  var repoUrl = document.getElementById("appRepoUrl").value.trim();
+  var envKeys = document.getElementById("appEnvKeys").value.trim();
+  var errEl = document.getElementById("submitError");
+  var successEl = document.getElementById("submitSuccess");
+  var btn = document.getElementById("submitAppBtn");
+
+  errEl.style.display = "none";
+  successEl.style.display = "none";
+
+  if (!slug || !name || !port) {
+    errEl.textContent = "Slug, name, and port are required.";
+    errEl.style.display = "block";
+    return;
+  }
+  if (!/^[a-z][a-z0-9-]{1,30}$/.test(slug)) {
+    errEl.textContent = "Slug must be lowercase letters, numbers, hyphens. Start with a letter, 2-31 chars.";
+    errEl.style.display = "block";
+    return;
+  }
+  var portNum = parseInt(port);
+  if (isNaN(portNum) || portNum < 1024 || portNum > 65535) {
+    errEl.textContent = "Port must be between 1024 and 65535.";
+    errEl.style.display = "block";
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Validating...";
+
+  try {
+    var resp = await fetch("/admin/api/apps/submit", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ slug: slug, name: name, description: desc, icon: icon, port: portNum, repo_url: repoUrl, env_keys: envKeys }),
+    });
+    var data = await resp.json();
+
+    if (data.error) {
+      // Show validation details if present
+      if (data.validation && data.validation.checks) {
+        var msg = data.error + '\n\n';
+        data.validation.checks.forEach(function(c) {
+          var sym = c.status === 'pass' ? '\u2713' : c.status === 'fail' ? '\u2717' : '!';
+          msg += sym + ' ' + c.check;
+          if (c.detail) msg += ' — ' + c.detail;
+          msg += '\n';
+        });
+        errEl.textContent = msg;
+      } else {
+        errEl.textContent = data.error;
+      }
+      errEl.style.display = "block";
+    } else {
+      var msg = data.update ? "App update submitted for review!" : data.resubmit ? "App resubmitted for review!" : "App submitted for review!";
+      successEl.textContent = msg;
+      successEl.style.display = "block";
+      document.getElementById("appSlug").value = "";
+      document.getElementById("appName").value = "";
+      document.getElementById("appDesc").value = "";
+      document.getElementById("appIcon").value = "";
+      document.getElementById("appIconPreview").textContent = "\ud83d\udce6";
+      var popup = document.getElementById("appIconPopup");
+      if (popup) popup.classList.remove("open");
+      document.getElementById("appPort").value = "";
+      document.getElementById("appRepoUrl").value = "";
+      document.getElementById("appEnvKeys").value = "";
+      loadSubmissions();
+      if (data.validation) {
+        showToast("Validation passed — submitted for review");
+      }
+    }
+  } catch (e) {
+    errEl.textContent = "Network error. Please try again.";
+    errEl.style.display = "block";
+  }
+
+  btn.disabled = false;
+  btn.textContent = "Submit for Review";
+}
+
+async function loadSubmissions() {
+  var container = document.getElementById("queueList");
+
+  try {
+    var resp = await fetch("/admin/api/apps/submissions");
+    var data = await resp.json();
+    var subs = data.submissions || [];
+
+    if (subs.length === 0) {
+      container.innerHTML = '<div class="queue-empty">No app submissions yet.</div>';
+      return;
+    }
+
+    container.innerHTML = subs.map(function(s) {
+      var statusClass = s.status;
+      var envList = s.env_keys ? s.env_keys.split("\n").filter(function(k) { return k.trim(); }) : [];
+
+      // Action buttons depend on status
+      var actions = '';
+      // Escape single quotes for onclick handlers
+      var esc = function(v) { return (v || '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); };
+
+      var editBtn = '<button class="queue-btn edit" onclick="editApp(' + s.id + ')">Edit</button>';
+      var deleteBtn = '<button class="queue-btn reject" onclick="deleteApp(' + s.id + ', \'' + esc(s.slug) + '\')">Delete</button>';
+      if (s.status === 'pending') {
+        actions = '<div class="queue-item-actions">' +
+          '<button class="queue-btn approve" onclick="approveApp(' + s.id + ')">Approve</button>' +
+          '<button class="queue-btn reject" onclick="rejectApp(' + s.id + ')">Reject</button>' +
+          editBtn + deleteBtn +
+          '</div>';
+      } else if (s.status === 'approved') {
+        actions = '<div class="queue-item-actions">' +
+          '<button class="queue-btn deploy" onclick="deployApp(\'' + esc(s.slug) + '\', ' + s.port + ', \'' + esc(s.repo_url) + '\', false)">Deploy</button>' +
+          '<button class="queue-btn test" onclick="testApp(\'' + esc(s.slug) + '\', ' + s.port + ', \'' + esc(s.repo_url) + '\')">Test</button>' +
+          editBtn + deleteBtn +
+          '</div>';
+      } else if (s.status === 'live') {
+        actions = '<div class="queue-item-actions">' +
+          '<button class="queue-btn undeploy" onclick="undeployApp(\'' + esc(s.slug) + '\', ' + s.id + ')">Undeploy</button>' +
+          editBtn + deleteBtn +
+          '</div>';
+      } else if (s.status === 'error') {
+        actions = '<div class="queue-item-actions">' +
+          '<button class="queue-btn deploy" onclick="deployApp(\'' + esc(s.slug) + '\', ' + s.port + ', \'' + esc(s.repo_url) + '\', false)">Retry Deploy</button>' +
+          '<button class="queue-btn test" onclick="testApp(\'' + esc(s.slug) + '\', ' + s.port + ', \'' + esc(s.repo_url) + '\')">Test</button>' +
+          editBtn + deleteBtn +
+          '</div>';
+      } else if (s.status === 'rejected') {
+        actions = '<div class="queue-item-actions">' +
+          editBtn + deleteBtn +
+          '</div>';
+      }
+
+      var iconHtml = s.icon ? '<span class="queue-item-icon">' + s.icon + '</span>' : '';
+
+      // Store submission data in JS, not HTML attributes
+      if (!window._submissions) window._submissions = {};
+      window._submissions[s.id] = s;
+
+      return '<div class="queue-item" id="queue-item-' + s.id + '">' +
+        '<div class="queue-item-header">' +
+          '<div>' + iconHtml + '<span class="queue-item-name">' + s.name + '</span> <span class="queue-item-slug">' + s.slug + '</span></div>' +
+          '<span class="status-badge ' + statusClass + '">' + s.status + '</span>' +
+        '</div>' +
+        (s.description ? '<div class="queue-item-desc">' + s.description + '</div>' : '') +
+        '<div class="queue-item-meta">' +
+          '<div>Port: <code>' + s.port + '</code></div>' +
+          (s.repo_url ? '<div>Repo: <code>' + s.repo_url + '</code></div>' : '') +
+          (envList.length > 0 ? '<div>Env keys: <code>' + envList.join('</code>, <code>') + '</code></div>' : '') +
+          '<div>By: ' + s.submitted_by + (s.reviewed_by ? ' &middot; Reviewed by: ' + s.reviewed_by : '') + '</div>' +
+        '</div>' +
+        actions +
+        '<div id="deploy-result-' + s.id + '"></div>' +
+      '</div>';
+    }).join("");
+  } catch (e) {
+    container.innerHTML = '<div class="queue-empty">Failed to load submissions.</div>';
+  }
+}
+
+function editApp(id) {
+  var s = window._submissions && window._submissions[id];
+  if (!s) return;
+
+  var overlay = document.createElement('div');
+  overlay.className = 'edit-overlay';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML =
+    '<div class="edit-modal">' +
+      '<h3>' + (s.icon || '') + ' Edit ' + s.name + '</h3>' +
+      '<div class="form-group"><label>App Name</label>' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<div class="emoji-picker-wrap" style="position:relative;">' +
+            '<button type="button" id="editIconBtn" class="emoji-picker-btn" onclick="toggleEmojiPicker(\'editIcon\')" title="Pick an icon">' +
+              '<span id="editIconPreview">' + (s.icon || '\ud83d\udce6') + '</span>' +
+            '</button>' +
+            '<div class="emoji-picker-popup" id="editIconPopup"></div>' +
+            '<input type="hidden" id="editIcon" value="' + (s.icon || '') + '">' +
+          '</div>' +
+          '<input type="text" id="editName" value="' + (s.name || '').replace(/"/g, '&quot;') + '" style="flex:1;">' +
+        '</div>' +
+      '</div>' +
+      '<div class="form-group"><label>Description</label><textarea id="editDesc">' + (s.description || '') + '</textarea></div>' +
+      '<div class="form-group"><label>Port</label><input type="number" id="editPort" value="' + s.port + '" min="1024" max="65535"></div>' +
+      '<div class="form-group"><label>Git Repository URL</label><input type="text" id="editRepo" value="' + (s.repo_url || '').replace(/"/g, '&quot;') + '"></div>' +
+      '<div class="edit-modal-actions">' +
+        '<button class="edit-cancel" onclick="this.closest(\'.edit-overlay\').remove()">Cancel</button>' +
+        '<button class="edit-save" id="editSaveBtn">Save</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(overlay);
+
+  document.getElementById('editSaveBtn').onclick = async function() {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      var resp = await fetch('/admin/api/apps/edit', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          id: id,
+          name: document.getElementById('editName').value.trim(),
+          description: document.getElementById('editDesc').value.trim(),
+          icon: document.getElementById('editIcon').value.trim(),
+          port: parseInt(document.getElementById('editPort').value) || s.port,
+          repo_url: document.getElementById('editRepo').value.trim(),
+        }),
+      });
+      var data = await resp.json();
+      if (data.status === 'updated') {
+        overlay.remove();
+        showToast('Updated');
+        loadSubmissions();
+      } else {
+        showToast('Error: ' + (data.error || 'Unknown'));
+        btn.disabled = false;
+        btn.textContent = 'Save';
+      }
+    } catch (e) {
+      showToast('Save failed');
+      btn.disabled = false;
+      btn.textContent = 'Save';
+    }
+  };
+}
+
+async function deleteApp(id, slug) {
+  if (!confirm("Delete " + slug + "? This will remove the submission" + " and undeploy if live.")) return;
+
+  try {
+    var resp = await fetch("/admin/api/apps/delete", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ id: id }),
+    });
+    var data = await resp.json();
+    if (data.status === "deleted") {
+      showToast(slug + " deleted");
+      loadSubmissions();
+    } else if (data.error) {
+      showToast("Error: " + data.error);
+    }
+  } catch (e) {
+    showToast("Delete failed — network error");
+  }
+}
+
+async function approveApp(id) {
+  if (!confirm("Approve this app? You can deploy it separately after approval.")) return;
+
+  var resp = await fetch("/admin/api/apps/approve", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ id: id }),
+  });
+  var data = await resp.json();
+
+  if (data.error) {
+    showToast("Error: " + data.error);
+  } else {
+    showToast("App approved — ready to deploy");
+  }
+  loadSubmissions();
+}
+
+async function rejectApp(id) {
+  if (!confirm("Reject this app submission?")) return;
+
+  var resp = await fetch("/admin/api/apps/reject", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ id: id }),
+  });
+  var data = await resp.json();
+
+  if (data.error) {
+    showToast("Error: " + data.error);
+  } else {
+    showToast("App rejected");
+  }
+  loadSubmissions();
+}
+
+async function deployApp(appName, port, repoUrl, dryRun) {
+  var action = dryRun ? "dry-run deploy" : "deploy";
+  if (!dryRun && !confirm("Deploy " + appName + " to production?")) return;
+
+  // Find the submission to show result in
+  var resultEl = document.querySelector('[id^="deploy-result-"]');
+  // Find by app name in the queue
+  var items = document.querySelectorAll('.queue-item');
+  for (var i = 0; i < items.length; i++) {
+    var slugEl = items[i].querySelector('.queue-item-slug');
+    if (slugEl && slugEl.textContent === appName) {
+      resultEl = items[i].querySelector('[id^="deploy-result-"]');
+      break;
+    }
+  }
+
+  if (resultEl) {
+    resultEl.innerHTML = '<div class="deploy-result dry-run">Deploying ' + appName + '...</div>';
+  }
+
+  var payload = {
+    app_name: appName,
+    port: port,
+    dry_run: dryRun,
+  };
+  if (repoUrl) payload.repo_url = repoUrl;
+
+  try {
+    var resp = await fetch("/admin/api/deploy", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    var data = await resp.json();
+
+    if (resultEl) {
+      if (data.status === "deployed") {
+        resultEl.innerHTML = '<div class="deploy-result success">' +
+          'Deployed successfully!\n' +
+          'URL: ' + data.url + '\n' +
+          'Port: ' + data.port + '\n' +
+          'DB user: ' + (data.db_user || 'n/a') + '\n' +
+          'Healthy: ' + (data.healthy ? 'yes' : 'no') +
+          '</div>';
+        showToast(appName + " deployed!");
+        // Update submission status to live
+        updateSubmissionStatus(appName, "live");
+      } else if (data.status === "dry_run") {
+        var steps = (data.steps || []).map(function(s) { return "  " + s; }).join("\n");
+        resultEl.innerHTML = '<div class="deploy-result dry-run">Dry run for ' + appName + ':\n' + steps + '</div>';
+        showToast("Dry run complete");
+      } else if (data.status === "failed") {
+        resultEl.innerHTML = '<div class="deploy-result failure">' +
+          'Deploy failed at step: ' + (data.step || 'unknown') + '\n' +
+          'Error: ' + (data.error || 'Unknown error') +
+          '</div>';
+        showToast("Deploy failed: " + (data.error || "unknown error"));
+        updateSubmissionStatus(appName, "error");
+      } else if (data.error) {
+        resultEl.innerHTML = '<div class="deploy-result failure">Error: ' + data.error + '</div>';
+        showToast("Error: " + data.error);
+      }
+    }
+  } catch (e) {
+    if (resultEl) {
+      resultEl.innerHTML = '<div class="deploy-result failure">Network error — deploy endpoint may not be available yet.</div>';
+    }
+    showToast("Deploy request failed — endpoint not available");
+  }
+}
+
+async function testApp(appName, port, repoUrl) {
+  var resultEl = null;
+  var items = document.querySelectorAll('.queue-item');
+  for (var i = 0; i < items.length; i++) {
+    var slugEl = items[i].querySelector('.queue-item-slug');
+    if (slugEl && slugEl.textContent === appName) {
+      resultEl = items[i].querySelector('[id^="deploy-result-"]');
+      break;
+    }
+  }
+
+  if (resultEl) {
+    resultEl.innerHTML = '<div class="deploy-result dry-run">Running checks for ' + appName + '...</div>';
+  }
+
+  var payload = { app_name: appName, port: port };
+  if (repoUrl) payload.repo_url = repoUrl;
+
+  try {
+    var resp = await fetch("/admin/api/test-deploy", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    var data = await resp.json();
+
+    if (resultEl && data.status === "test") {
+      var cssClass = data.result === "pass" ? "test-pass" : data.result === "warn" ? "test-warn" : "test-fail";
+      var icon = data.result === "pass" ? "\u2705" : data.result === "warn" ? "\u26a0\ufe0f" : "\u274c";
+      var html = '<div class="deploy-result ' + cssClass + '">';
+      html += icon + ' Test ' + data.result.toUpperCase() + ' — ' + data.summary + '\n\n';
+
+      // Render checks
+      (data.checks || []).forEach(function(c) {
+        var sym = c.status === "pass" ? "\u2713" : c.status === "fail" ? "\u2717" : "!";
+        html += '<span class="test-check"><span class="' + c.status + '">' + sym + '</span> ' + c.check;
+        if (c.detail) html += ' — ' + c.detail;
+        html += '</span>\n';
+      });
+
+      // Render warnings
+      if (data.warnings && data.warnings.length > 0) {
+        html += '\nWarnings:\n';
+        data.warnings.forEach(function(w) {
+          html += '<span class="test-check"><span class="warn">!</span> ' + w + '</span>\n';
+        });
+      }
+
+      html += '</div>';
+      resultEl.innerHTML = html;
+
+      if (data.result === "pass") {
+        showToast("All checks passed — ready to deploy");
+      } else if (data.result === "warn") {
+        showToast("Checks passed with warnings");
+      } else {
+        showToast("Some checks failed — review before deploying");
+      }
+    } else if (data.error) {
+      if (resultEl) resultEl.innerHTML = '<div class="deploy-result failure">Error: ' + data.error + '</div>';
+      showToast("Error: " + data.error);
+    }
+  } catch (e) {
+    if (resultEl) {
+      resultEl.innerHTML = '<div class="deploy-result failure">Network error — deploy service may not be available.</div>';
+    }
+    showToast("Test request failed — deploy service not available");
+  }
+}
+
+async function undeployApp(appName, submissionId) {
+  if (!confirm("Undeploy " + appName + "? This will stop the container, remove the Nginx route, and drop the DB user.")) return;
+
+  try {
+    var resp = await fetch("/admin/api/undeploy", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ app_name: appName }),
+    });
+    var data = await resp.json();
+
+    if (data.status === "removed") {
+      showToast(appName + " undeployed");
+      updateSubmissionStatus(appName, "approved");
+    } else if (data.error) {
+      showToast("Error: " + data.error);
+    }
+  } catch (e) {
+    showToast("Undeploy request failed — endpoint not available");
+  }
+}
+
+function updateSubmissionStatus(slug, newStatus) {
+  fetch("/admin/api/apps/status", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ slug: slug, status: newStatus }),
+  }).then(function() {
+    loadSubmissions();
+  });
+}
 </script>
 <script src="/hub-navbar.js" defer></script>
 </body>

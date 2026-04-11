@@ -202,7 +202,30 @@ const APP_DEFS = [
   },
 ];
 
+async function loadDeployedApps() {
+  try {
+    const resp = await fetch("/launcher/api/apps");
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return (data.apps || []).map(function(app) {
+      return {
+        slug: app.slug,
+        name: app.name,
+        description: app.description || "",
+        icon: app.icon || "&#x1f4e6;",
+        iconClass: "icon-deployed",
+        url: "/" + app.slug + "/",
+        alwaysAccessible: false,
+      };
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
 async function init() {
+  // Load deployed apps in parallel with auth check
+  const deployedPromise = loadDeployedApps();
   try {
     const resp = await fetch("/auth/me");
     if (resp.ok) {
@@ -210,17 +233,21 @@ async function init() {
       if (user.authenticated) {
         const firstName = (user.name || "").split(" ")[0] || "there";
         document.getElementById("greeting").textContent = "Welcome, " + firstName;
-        renderApps(user.permissions || []);
+        const deployed = await deployedPromise;
+        renderApps(user.permissions || [], deployed);
         return;
       }
     }
   } catch (e) {}
-  renderApps([]);
+  renderApps([], []);
 }
 
-function renderApps(userPerms) {
+function renderApps(userPerms, deployedApps) {
   const grid = document.getElementById("appGrid");
-  const accessible = APP_DEFS.filter(app => app.alwaysAccessible || userPerms.includes(app.slug));
+  // Merge hardcoded apps with dynamically deployed ones
+  const knownSlugs = new Set(APP_DEFS.map(a => a.slug));
+  const allApps = APP_DEFS.concat((deployedApps || []).filter(a => !knownSlugs.has(a.slug)));
+  const accessible = allApps.filter(app => app.alwaysAccessible || userPerms.includes(app.slug));
 
   if (accessible.length === 0) {
     grid.innerHTML = '<p style="color:var(--text-muted);text-align:center;grid-column:1/-1;">No applications available. Contact an admin for access.</p>';
