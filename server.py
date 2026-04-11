@@ -245,7 +245,7 @@ def auth_check():
 
 
 # ── Admin: who can access the admin panel ──
-SUPER_ADMINS = ["victor@egelloc.com", "tony@egelloc.com", "art@egelloc.com", "dollie@egelloc.com"]
+SUPER_ADMINS = ["victor@egelloc.com", "tony@egelloc.com", "art@egelloc.com", "dollie@egelloc.com", "viktoriya@egelloc.com"]
 
 
 def admin_required(f):
