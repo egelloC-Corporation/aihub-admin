@@ -7,6 +7,6 @@ services:
     # Use host network on Linux so the app can reach the local AI Hub server.
     # On Mac/Windows Docker Desktop, host.docker.internal resolves automatically.
     # If you use this, override AIHUB_AUTH_URL in .env:
-    #   AIHUB_AUTH_URL=http://host.docker.internal:5000/auth/me
+    #   AIHUB_AUTH_URL=http://host.docker.internal:5051/auth/me
     extra_hosts:
       - "host.docker.internal:host-gateway"

@@ -11,7 +11,7 @@
  *   app.get("/protected", loginRequired, (req, res) => { ... });
  */
 
-const AIHUB_AUTH_URL = process.env.AIHUB_AUTH_URL || "http://localhost:5000/auth/me";
+const AIHUB_AUTH_URL = process.env.AIHUB_AUTH_URL || "http://localhost:5051/auth/me";
 const AIHUB_DEV_EMAIL = process.env.AIHUB_DEV_EMAIL || "";
 
 if (AIHUB_DEV_EMAIL) {

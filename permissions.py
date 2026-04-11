@@ -62,6 +62,7 @@ def init_db():
             icon TEXT DEFAULT '',
             port INTEGER NOT NULL,
             repo_url TEXT DEFAULT '',
+            repo_subdir TEXT DEFAULT '',
             env_keys TEXT DEFAULT '',
             status TEXT DEFAULT 'pending',
             submitted_by TEXT NOT NULL,
@@ -71,11 +72,12 @@ def init_db():
         );
     """)
 
-    # Migrate: add icon column if missing
-    try:
-        conn.execute("ALTER TABLE app_submissions ADD COLUMN icon TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass  # Column already exists
+    # Migrate: add columns if missing
+    for col in ["icon TEXT DEFAULT ''", "repo_subdir TEXT DEFAULT ''"]:
+        try:
+            conn.execute(f"ALTER TABLE app_submissions ADD COLUMN {col}")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     # Upsert app registry
     for app in APPS:
@@ -212,7 +214,7 @@ def get_custom_users():
 
 # ── App Submissions ──
 
-def submit_app(slug, name, description, icon, port, repo_url, env_keys, submitted_by):
+def submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_keys, submitted_by):
     """Submit a new app or update an existing one for review.
     If the slug already exists and is live/approved/error, resets it to pending (update flow).
     """
@@ -226,12 +228,12 @@ def submit_app(slug, name, description, icon, port, repo_url, env_keys, submitte
             # Update flow — reset to pending with new details
             conn.execute(
                 """UPDATE app_submissions
-                   SET name = ?, description = ?, icon = ?, port = ?, repo_url = ?, env_keys = ?,
+                   SET name = ?, description = ?, icon = ?, port = ?, repo_url = ?, repo_subdir = ?, env_keys = ?,
                        submitted_by = ?, status = 'pending',
                        reviewed_by = NULL, reviewed_at = NULL,
                        submitted_at = datetime('now')
                    WHERE slug = ?""",
-                (name, description, icon, port, repo_url, env_keys, submitted_by, slug),
+                (name, description, icon, port, repo_url, repo_subdir or "", env_keys, submitted_by, slug),
             )
             conn.commit()
             conn.close()
@@ -243,12 +245,12 @@ def submit_app(slug, name, description, icon, port, repo_url, env_keys, submitte
             # Allow resubmission after rejection
             conn.execute(
                 """UPDATE app_submissions
-                   SET name = ?, description = ?, icon = ?, port = ?, repo_url = ?, env_keys = ?,
+                   SET name = ?, description = ?, icon = ?, port = ?, repo_url = ?, repo_subdir = ?, env_keys = ?,
                        submitted_by = ?, status = 'pending',
                        reviewed_by = NULL, reviewed_at = NULL,
                        submitted_at = datetime('now')
                    WHERE slug = ?""",
-                (name, description, icon, port, repo_url, env_keys, submitted_by, slug),
+                (name, description, icon, port, repo_url, repo_subdir or "", env_keys, submitted_by, slug),
             )
             conn.commit()
             conn.close()
@@ -256,9 +258,9 @@ def submit_app(slug, name, description, icon, port, repo_url, env_keys, submitte
 
     try:
         conn.execute(
-            """INSERT INTO app_submissions (slug, name, description, icon, port, repo_url, env_keys, submitted_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (slug, name, description, icon, port, repo_url, env_keys, submitted_by),
+            """INSERT INTO app_submissions (slug, name, description, icon, port, repo_url, repo_subdir, env_keys, submitted_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (slug, name, description, icon, port, repo_url, repo_subdir or "", env_keys, submitted_by),
         )
         conn.commit()
     except sqlite3.IntegrityError:
@@ -336,8 +338,8 @@ def mark_submission_error(submission_id):
     conn.close()
 
 
-def reject_submission(submission_id, reviewed_by):
-    """Reject an app submission."""
+def reject_submission(submission_id, reviewed_by, reason=""):
+    """Reject an app submission with an optional reason."""
     conn = get_db()
     row = conn.execute(
         "SELECT 1 FROM app_submissions WHERE id = ? AND status = 'pending'",
@@ -351,6 +353,13 @@ def reject_submission(submission_id, reviewed_by):
         "UPDATE app_submissions SET status = 'rejected', reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?",
         (reviewed_by, submission_id),
     )
+    # Store rejection reason if provided (add column if missing)
+    if reason:
+        try:
+            conn.execute("ALTER TABLE app_submissions ADD COLUMN rejection_reason TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+        conn.execute("UPDATE app_submissions SET rejection_reason = ? WHERE id = ?", (reason, submission_id))
     conn.commit()
     conn.close()
     return {"status": "rejected"}

@@ -28,7 +28,7 @@ import requests as http_requests
 log = logging.getLogger(__name__)
 
 # AI Hub auth endpoint — override with AIHUB_AUTH_URL for local dev
-AIHUB_AUTH_URL = os.environ.get("AIHUB_AUTH_URL", "http://localhost:5000/auth/me")
+AIHUB_AUTH_URL = os.environ.get("AIHUB_AUTH_URL", "http://localhost:5051/auth/me")
 AIHUB_DEV_EMAIL = os.environ.get("AIHUB_DEV_EMAIL", "")
 
 if AIHUB_DEV_EMAIL:

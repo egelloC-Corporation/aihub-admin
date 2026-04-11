@@ -145,6 +145,7 @@
       // Build app grid — only show apps user has permission for
       var grid = document.getElementById("hubAppGrid");
       var html = "";
+      function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
       // Always show launcher
       html += '<a class="hub-app-item" href="/launcher">' +
@@ -155,9 +156,9 @@
         var app = allApps[i];
         if (perms.indexOf(app.slug) === -1) continue;
         var active = app.slug === currentSlug ? " active" : "";
-        html += '<a class="hub-app-item' + active + '" href="' + app.url + '">' +
+        html += '<a class="hub-app-item' + active + '" href="' + esc(app.url) + '">' +
           '<div class="hub-app-icon">' + app.icon + '</div>' +
-          '<div class="hub-app-label">' + app.name + '</div></a>';
+          '<div class="hub-app-label">' + esc(app.name) + '</div></a>';
       }
 
       grid.innerHTML = html;

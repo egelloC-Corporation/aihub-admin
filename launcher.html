@@ -142,6 +142,7 @@
     .icon-briefer { background: rgba(79, 143, 247, 0.15); color: var(--accent); }
     .icon-hub { background: rgba(167, 139, 250, 0.15); color: var(--purple); }
     .icon-admin { background: rgba(245, 158, 11, 0.15); color: var(--orange); }
+    .icon-deployed { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
 
     .footer {
       text-align: center; padding: 20px;
@@ -177,7 +178,7 @@ const APP_DEFS = [
     slug: "hub",
     name: "Tech Knowledge Base",
     description: "Documentation, architecture, team resources, and internal tools",
-    icon: "&#x1f4da;",
+    icon: "\ud83d\udcda",
     iconClass: "icon-hub",
     url: "/knowledge/",
     alwaysAccessible: false,
@@ -186,7 +187,7 @@ const APP_DEFS = [
     slug: "briefer",
     name: "Coaching Briefer",
     description: "AI-powered pre-call briefings with student context, notes, and Fathom transcripts",
-    icon: "&#x1f4cb;",
+    icon: "\ud83d\udccb",
     iconClass: "icon-briefer",
     url: "/briefer/",
     alwaysAccessible: false,
@@ -195,7 +196,7 @@ const APP_DEFS = [
     slug: "admin",
     name: "Admin Panel",
     description: "Manage user permissions and application access for the team",
-    icon: "&#x2699;&#xfe0f;",
+    icon: "\u2699\ufe0f",
     iconClass: "icon-admin",
     url: "/admin",
     alwaysAccessible: false,
@@ -254,11 +255,12 @@ function renderApps(userPerms, deployedApps) {
     return;
   }
 
+  function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
   grid.innerHTML = accessible.map(app => {
-    return '<a class="app-card" href="' + app.url + '">' +
-      '<div class="icon ' + app.iconClass + '">' + app.icon + '</div>' +
-      '<div class="app-name">' + app.name + '</div>' +
-      '<div class="app-desc">' + app.description + '</div>' +
+    return '<a class="app-card" href="' + esc(app.url) + '">' +
+      '<div class="icon ' + esc(app.iconClass || '') + '">' + app.icon + '</div>' +
+      '<div class="app-name">' + esc(app.name) + '</div>' +
+      '<div class="app-desc">' + esc(app.description) + '</div>' +
       '<div class="app-arrow">&rarr;</div>' +
     '</a>';
   }).join("");

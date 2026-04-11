@@ -279,6 +279,8 @@ def admin_required(f):
 def admin_page():
     resp = send_from_directory(".", "admin.html")
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
     return resp
 
 
@@ -443,6 +445,22 @@ def api_submit_app():
 
     if not slug or not name or not port:
         return jsonify({"error": "slug, name, and port are required"}), 400
+    if not repo_url:
+        return jsonify({"error": "Git repository URL is required for deployment"}), 400
+
+    # Auto-detect subdirectory from GitHub tree URLs
+    # e.g. https://github.com/org/repo/tree/main/my-app → repo=org/repo.git, subdir=my-app
+    tree_match = re.match(r"https://github\.com/([^/]+/[^/]+)/tree/[^/]+/(.+?)/?$", repo_url)
+    if tree_match:
+        repo_url = f"https://github.com/{tree_match.group(1)}.git"
+        # Store subdirectory in env_keys as a special prefix (parsed by deploy)
+        # We'll pass it separately via the deploy API
+        repo_subdir = tree_match.group(2)
+    else:
+        repo_subdir = None
+    # Ensure repo_url ends with .git
+    if repo_url and "github.com" in repo_url and not repo_url.endswith(".git"):
+        repo_url = repo_url.rstrip("/") + ".git"
     if not re.match(r"^[a-z][a-z0-9-]{1,30}$", slug):
         return jsonify({"error": "Slug must be lowercase letters, numbers, hyphens. 2-31 chars, start with letter."}), 400
     try:
@@ -473,7 +491,7 @@ def api_submit_app():
         pass
 
     submitted_by = session["user"]["email"]
-    result = submit_app(slug, name, description, icon, port, repo_url, env_keys, submitted_by)
+    result = submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_keys, submitted_by)
     if "error" in result:
         return jsonify(result), 409
     if validation:
@@ -486,6 +504,21 @@ def api_submit_app():
 def api_app_submissions():
     """Get all app submissions (admin only)."""
     return jsonify({"submissions": get_all_submissions()})
+
+
+@app.route("/admin/api/apps/my-submissions")
+@login_required
+def api_my_submissions():
+    """Get submissions by the current user. Any authenticated user can check their own."""
+    from permissions import get_db
+    email = session["user"]["email"].lower()
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT slug, name, status, submitted_at, reviewed_at FROM app_submissions WHERE submitted_by = ? COLLATE NOCASE ORDER BY submitted_at DESC",
+        (email,),
+    ).fetchall()
+    conn.close()
+    return jsonify({"submissions": [dict(r) for r in rows]})
 
 
 @app.route("/admin/api/apps/approve", methods=["POST"])
@@ -537,8 +570,9 @@ def api_reject_app():
     if not submission_id:
         return jsonify({"error": "id is required"}), 400
 
+    reason = (body.get("reason") or "").strip()
     reviewed_by = session["user"]["email"]
-    result = reject_submission(submission_id, reviewed_by)
+    result = reject_submission(submission_id, reviewed_by, reason=reason)
     if "error" in result:
         return jsonify(result), 404
     return jsonify(result)
@@ -609,6 +643,7 @@ def api_deploy_app():
     port = body.get("port")
     repo_url = body.get("repo_url")
     local_path = body.get("local_path")
+    repo_subdir = body.get("repo_subdir")
     dry_run = body.get("dry_run", False)
 
     if not app_name or not port:
@@ -622,6 +657,7 @@ def api_deploy_app():
                 "port": port,
                 "repo_url": repo_url,
                 "local_path": local_path,
+                "repo_subdir": repo_subdir,
                 "dry_run": dry_run,
             },
             timeout=120,

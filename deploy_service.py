@@ -44,6 +44,7 @@ def deploy():
     port = body.get("port")
     repo_url = body.get("repo_url")
     local_path = body.get("local_path")
+    repo_subdir = body.get("repo_subdir")
     dry_run = body.get("dry_run", False)
 
     if not app_name:
@@ -58,6 +59,7 @@ def deploy():
         port=int(port),
         repo_url=repo_url,
         local_path=local_path,
+        repo_subdir=repo_subdir,
         dry_run=dry_run,
     )
 

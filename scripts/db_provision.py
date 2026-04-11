@@ -58,32 +58,43 @@ def _get_connection():
     )
 
 
+def _sanitize_identifier(name):
+    """Sanitize an app name for use as a Postgres identifier.
+    Replaces hyphens with underscores and validates the result."""
+    import re
+    sanitized = name.replace("-", "_")
+    if not re.match(r'^[a-z][a-z0-9_]*$', sanitized):
+        raise ValueError(f"Invalid identifier: {name}")
+    return sanitized
+
+
 def _get_sql_create(db_user, password, schema):
-    """Return the SQL statements to create a scoped app user."""
+    """Return (sql_template, params) tuples for creating a scoped app user.
+    Uses quoted identifiers and parameterized password to prevent injection."""
+    # Postgres identifiers must be quoted to be safe
+    q_user = f'"{db_user}"'
+    q_schema = f'"{schema}"'
     return [
-        f"CREATE SCHEMA IF NOT EXISTS {schema}",
-        f"CREATE USER {db_user} WITH PASSWORD '{password}'",
-        # Grant usage and create on the app's own schema
-        f"GRANT USAGE, CREATE ON SCHEMA {schema} TO {db_user}",
-        # Grant DML (no DELETE) on existing tables
-        f"GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA {schema} TO {db_user}",
-        # Apply same grants to future tables created in this schema
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT, INSERT, UPDATE ON TABLES TO {db_user}",
-        # Grant usage on sequences (for auto-increment PKs)
-        f"GRANT USAGE ON ALL SEQUENCES IN SCHEMA {schema} TO {db_user}",
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT USAGE ON SEQUENCES TO {db_user}",
-        # Explicitly deny public schema access
-        f"REVOKE ALL ON SCHEMA public FROM {db_user}",
+        (f"CREATE SCHEMA IF NOT EXISTS {q_schema}", None),
+        (f"CREATE USER {q_user} WITH PASSWORD %s", (password,)),
+        (f"GRANT USAGE, CREATE ON SCHEMA {q_schema} TO {q_user}", None),
+        (f"GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA {q_schema} TO {q_user}", None),
+        (f"ALTER DEFAULT PRIVILEGES IN SCHEMA {q_schema} GRANT SELECT, INSERT, UPDATE ON TABLES TO {q_user}", None),
+        (f"GRANT USAGE ON ALL SEQUENCES IN SCHEMA {q_schema} TO {q_user}", None),
+        (f"ALTER DEFAULT PRIVILEGES IN SCHEMA {q_schema} GRANT USAGE ON SEQUENCES TO {q_user}", None),
+        (f"REVOKE ALL ON SCHEMA public FROM {q_user}", None),
     ]
 
 
 def _get_sql_drop(db_user, schema):
-    """Return the SQL statements to drop an app user and its schema."""
+    """Return (sql_template, params) tuples for dropping an app user and schema."""
+    q_user = f'"{db_user}"'
+    q_schema = f'"{schema}"'
     return [
-        f"REASSIGN OWNED BY {db_user} TO {POSTGRES_USER}",
-        f"DROP OWNED BY {db_user}",
-        f"DROP USER IF EXISTS {db_user}",
-        f"DROP SCHEMA IF EXISTS {schema} CASCADE",
+        (f"REASSIGN OWNED BY {q_user} TO {POSTGRES_USER}", None),
+        (f"DROP OWNED BY {q_user}", None),
+        (f"DROP USER IF EXISTS {q_user}", None),
+        (f"DROP SCHEMA IF EXISTS {q_schema} CASCADE", None),
     ]
 
 
@@ -92,8 +103,9 @@ def create_app_user(app_name, dry_run=False):
     Create a scoped DB user for an app.
     Returns dict with credentials on success, or error dict.
     """
-    db_user = f"app_{app_name}"
-    schema = f"app_{app_name}"
+    safe_name = _sanitize_identifier(app_name)
+    db_user = f"app_{safe_name}"
+    schema = f"app_{safe_name}"
     password = _generate_password()
 
     sql_statements = _get_sql_create(db_user, password, schema)
@@ -101,9 +113,8 @@ def create_app_user(app_name, dry_run=False):
     if dry_run:
         print(f"  [dry-run] Would create Postgres user '{db_user}' with schema '{schema}'")
         print(f"  [dry-run] SQL statements:")
-        for sql in sql_statements:
-            # Mask password in dry-run output
-            display = sql.replace(password, "********")
+        for sql, params in sql_statements:
+            display = sql.replace("%s", "********") if params else sql
             print(f"    {display}")
         env_path = os.path.join(os.path.abspath(APPS_DIR), app_name, ".env")
         print(f"  [dry-run] Would write credentials to {env_path}")
@@ -118,8 +129,11 @@ def create_app_user(app_name, dry_run=False):
     cursor = conn.cursor()
 
     try:
-        for sql in sql_statements:
-            cursor.execute(sql)
+        for sql, params in sql_statements:
+            if params:
+                cursor.execute(sql, params)
+            else:
+                cursor.execute(sql)
     except Exception as e:
         cursor.close()
         conn.close()
@@ -163,15 +177,16 @@ def create_app_user(app_name, dry_run=False):
 
 def drop_app_user(app_name, dry_run=False):
     """Drop an app's DB user and schema. Returns result dict."""
-    db_user = f"app_{app_name}"
-    schema = f"app_{app_name}"
+    safe_name = _sanitize_identifier(app_name)
+    db_user = f"app_{safe_name}"
+    schema = f"app_{safe_name}"
 
     sql_statements = _get_sql_drop(db_user, schema)
 
     if dry_run:
         print(f"  [dry-run] Would drop Postgres user '{db_user}' and schema '{schema}'")
         print(f"  [dry-run] SQL statements:")
-        for sql in sql_statements:
+        for sql, params in sql_statements:
             print(f"    {sql}")
         return {"status": "dry_run", "db_user": db_user}
 
@@ -180,8 +195,11 @@ def drop_app_user(app_name, dry_run=False):
     cursor = conn.cursor()
 
     try:
-        for sql in sql_statements:
-            cursor.execute(sql)
+        for sql, params in sql_statements:
+            if params:
+                cursor.execute(sql, params)
+            else:
+                cursor.execute(sql)
     except Exception as e:
         cursor.close()
         conn.close()

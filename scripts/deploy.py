@@ -68,8 +68,9 @@ def _run(cmd, dry_run=False, check=True):
     return result.stdout.strip()
 
 
-def _clone_or_copy(app_name, repo_url=None, local_path=None, dry_run=False):
-    """Clone a repo or copy a local directory into apps/<app_name>/."""
+def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, dry_run=False):
+    """Clone a repo or copy a local directory into apps/<app_name>/.
+    If repo_subdir is set, only that subdirectory is used as the app root."""
     dest = os.path.join(APPS_DIR, app_name)
 
     if os.path.exists(dest) and not dry_run:
@@ -77,8 +78,23 @@ def _clone_or_copy(app_name, repo_url=None, local_path=None, dry_run=False):
 
     if repo_url:
         auth_url = _inject_github_token(repo_url)
-        msg = _run(["git", "clone", "--depth", "1", auth_url, dest], dry_run=dry_run)
-        return msg or f"Cloned {_safe_url(repo_url)} → {dest}"
+        if repo_subdir:
+            # Clone to a temp dir, then move the subdirectory
+            tmp_dest = dest + "_tmp"
+            if os.path.exists(tmp_dest) and not dry_run:
+                shutil.rmtree(tmp_dest)
+            msg = _run(["git", "clone", "--depth", "1", auth_url, tmp_dest], dry_run=dry_run)
+            if not dry_run:
+                subdir_path = os.path.join(tmp_dest, repo_subdir)
+                if not os.path.isdir(subdir_path):
+                    shutil.rmtree(tmp_dest)
+                    raise RuntimeError(f"Subdirectory '{repo_subdir}' not found in repo")
+                shutil.copytree(subdir_path, dest, dirs_exist_ok=True)
+                shutil.rmtree(tmp_dest)
+            return msg or f"Cloned {_safe_url(repo_url)} (subdir: {repo_subdir}) → {dest}"
+        else:
+            msg = _run(["git", "clone", "--depth", "1", auth_url, dest], dry_run=dry_run)
+            return msg or f"Cloned {_safe_url(repo_url)} → {dest}"
     elif local_path:
         abs_path = os.path.abspath(local_path)
         if dry_run:
@@ -169,6 +185,9 @@ def _start_container(app_name, port, dry_run=False):
             capture_output=True, text=True,
         )
 
+    # Auth URL so deployed apps can verify sessions against the admin panel
+    auth_url = os.environ.get("AIHUB_AUTH_URL", "http://admin-panel:5051/auth/me")
+
     cmd = [
         "docker", "run", "-d",
         "--name", container_name,
@@ -176,12 +195,17 @@ def _start_container(app_name, port, dry_run=False):
         "-p", f"{port}:{port}",
         "-e", f"PORT={port}",
         "-e", f"APP_SLUG={app_name}",
+        "-e", f"AIHUB_AUTH_URL={auth_url}",
+        "-e", f"AIHUB_LOGIN_URL=/login?next=/{app_name}/",
+        "-e", f"HOST=0.0.0.0",
+        "--memory", "512m",
+        "--cpus", "0.5",
         "--restart", "unless-stopped",
         image_name,
     ]
 
     # Pass platform .env (shared secrets like OAuth, API keys)
-    platform_env = os.path.join(PROJECT_ROOT, ".env")
+    platform_env = os.environ.get("PLATFORM_ENV_FILE", "/app/platform.env")
     if os.path.exists(platform_env):
         cmd.insert(-1, "--env-file")
         cmd.insert(-1, platform_env)
@@ -417,7 +441,7 @@ def test_app(app_name, port, repo_url=None, local_path=None):
     }
 
 
-def deploy_app(app_name, port, repo_url=None, local_path=None, dry_run=False):
+def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None, dry_run=False):
     """
     Full deploy pipeline. Returns a result dict.
 
@@ -426,7 +450,7 @@ def deploy_app(app_name, port, repo_url=None, local_path=None, dry_run=False):
     steps = []
     try:
         # 1. Clone / copy source
-        msg = _clone_or_copy(app_name, repo_url=repo_url, local_path=local_path, dry_run=dry_run)
+        msg = _clone_or_copy(app_name, repo_url=repo_url, local_path=local_path, repo_subdir=repo_subdir, dry_run=dry_run)
         steps.append(msg)
 
         # 2. Build Docker image

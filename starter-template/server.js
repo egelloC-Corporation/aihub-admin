@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const { loginRequired, requirePermission } = require("./aihub-auth");
 
 const app = express();
@@ -12,16 +13,19 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", app: APP_SLUG });
 });
 
-// Protected route — any authenticated AI Hub user
+// HTML page — any authenticated AI Hub user
 app.get("/", loginRequired, (req, res) => {
-  res.json({
-    message: `Hello ${req.user.name || req.user.email}!`,
-    app: APP_SLUG,
-    user: req.user,
-  });
+  res.send(`<!DOCTYPE html>
+<html><head><title>${APP_SLUG}</title>
+<style>body{background:#0f1117;color:#e4e6eb;font-family:-apple-system,sans-serif;margin:0;padding:40px;}</style>
+</head><body>
+<h1>Hello ${req.user.name || req.user.email}!</h1>
+<p>This is ${APP_SLUG}.</p>
+<script src="/hub-navbar.js" defer></script>
+</body></html>`);
 });
 
-// Protected route — only users with permission for this specific app
+// API route — only users with permission for this specific app
 app.get("/data", requirePermission(APP_SLUG), (req, res) => {
   res.json({
     message: "You have access to this app's data",
@@ -29,6 +33,6 @@ app.get("/data", requirePermission(APP_SLUG), (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`${APP_SLUG} running at http://localhost:${PORT}`);
 });
