@@ -1944,7 +1944,6 @@ async function loadSubmissions() {
         '<div class="queue-item-meta">' +
           '<div>Port: <code>' + escHtml(s.port) + '</code></div>' +
           (s.repo_url ? '<div>Repo: <code>' + escHtml(s.repo_url) + '</code></div>' : '') +
-          (envList.length > 0 ? '<div>Env keys: <code>' + envList.map(escHtml).join('</code>, <code>') + '</code></div>' : '') +
           '<div>By: ' + escHtml(s.submitted_by) + (s.reviewed_by ? ' &middot; Reviewed by: ' + escHtml(s.reviewed_by) : '') + '</div>' +
         '</div>' +
         actions +
