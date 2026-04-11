@@ -1211,7 +1211,7 @@ clickup_cache = {}      # student_name_lower -> { task_url, drive_url, journey_u
 CACHE_TTL = 600  # 10 minutes
 
 # ── ClickUp config ──
-CLICKUP_API_KEY = os.environ.get("CLICKUP_API_KEY", "pk_82273715_9P2SGZT15H4YD12FAGZZE93K8ZNMZPR7")
+CLICKUP_API_KEY = os.environ.get("CLICKUP_API_KEY", "")
 CLICKUP_TEAM_ID = "9014258787"
 CLICKUP_HEADERS = {"Authorization": CLICKUP_API_KEY}
 
