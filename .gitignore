@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+venv/
+*.db
+readonly_db_users.json
+ssh_aliases.json

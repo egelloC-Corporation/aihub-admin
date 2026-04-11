@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>egelloC AI Hub</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface-hover: #222635;
+      --border: #2a2e3b;
+      --text: #e4e6eb;
+      --text-muted: #8b8fa3;
+      --text-dim: #5a5e70;
+      --accent: #4f8ff7;
+      --accent-dim: rgba(79, 143, 247, 0.12);
+      --green: #22c55e;
+      --purple: #a78bfa;
+      --orange: #f59e0b;
+      --radius: 12px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 28px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .topbar-brand {
+      display: flex; align-items: center; gap: 10px;
+      text-decoration: none; color: var(--text);
+    }
+    .topbar-brand img { height: 28px; }
+    .topbar-brand h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+    .topbar-right { display: flex; align-items: center; gap: 10px; }
+    .user-info { display: flex; align-items: center; gap: 8px; }
+    .user-avatar { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border); }
+    .user-name { font-size: 13px; color: var(--text-muted); }
+    .logout-btn {
+      background: none; border: 1px solid var(--border); color: var(--text-muted);
+      padding: 5px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
+      text-decoration: none; transition: all 0.15s;
+    }
+    .logout-btn:hover { border-color: #ef4444; color: #ef4444; }
+
+    .content {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 40px 24px;
+    }
+
+    .welcome {
+      text-align: center; margin-bottom: 48px;
+    }
+    .welcome h2 {
+      font-size: 28px; font-weight: 700; margin-bottom: 8px;
+    }
+    .welcome p {
+      font-size: 15px; color: var(--text-muted);
+    }
+
+    .app-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      max-width: 960px;
+      width: 100%;
+    }
+
+    .app-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 24px;
+      text-decoration: none;
+      color: var(--text);
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: relative;
+      overflow: hidden;
+    }
+    .app-card:hover {
+      border-color: var(--accent);
+      background: var(--surface-hover);
+      transform: translateY(-2px);
+    }
+    .app-card .icon {
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+    }
+    .app-card .app-name {
+      font-size: 17px; font-weight: 700;
+    }
+    .app-card .app-desc {
+      font-size: 13px; color: var(--text-muted); line-height: 1.5;
+    }
+    .app-card .app-arrow {
+      position: absolute;
+      top: 28px; right: 24px;
+      color: var(--text-dim);
+      font-size: 18px;
+      transition: all 0.2s;
+    }
+    .app-card:hover .app-arrow {
+      color: var(--accent);
+      transform: translateX(3px);
+    }
+
+    .app-card.locked {
+      opacity: 0.4;
+      pointer-events: none;
+    }
+    .app-card.locked .lock-badge {
+      display: block;
+    }
+    .lock-badge {
+      display: none;
+      position: absolute; top: 12px; right: 12px;
+      font-size: 10px; padding: 3px 8px; border-radius: 6px;
+      background: rgba(239, 68, 68, 0.15); color: #ef4444;
+      font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+    }
+
+    .icon-briefer { background: rgba(79, 143, 247, 0.15); color: var(--accent); }
+    .icon-hub { background: rgba(167, 139, 250, 0.15); color: var(--purple); }
+    .icon-admin { background: rgba(245, 158, 11, 0.15); color: var(--orange); }
+
+    .footer {
+      text-align: center; padding: 20px;
+      font-size: 12px; color: var(--text-dim);
+    }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-brand">
+    <h1>egelloC AI Hub</h1>
+  </div>
+  <div class="topbar-right"></div>
+</div>
+
+<div class="content">
+  <div class="welcome">
+    <h2 id="greeting">Welcome</h2>
+    <p>Select an application to get started</p>
+  </div>
+
+  <div class="app-grid" id="appGrid">
+    <!-- Apps loaded dynamically -->
+  </div>
+</div>
+
+<div class="footer">egelloC AI Hub</div>
+
+<script>
+const APP_DEFS = [
+  {
+    slug: "hub",
+    name: "Tech Knowledge Base",
+    description: "Documentation, architecture, team resources, and internal tools",
+    icon: "&#x1f4da;",
+    iconClass: "icon-hub",
+    url: "/knowledge/",
+    alwaysAccessible: false,
+  },
+  {
+    slug: "briefer",
+    name: "Coaching Briefer",
+    description: "AI-powered pre-call briefings with student context, notes, and Fathom transcripts",
+    icon: "&#x1f4cb;",
+    iconClass: "icon-briefer",
+    url: "/briefer/",
+    alwaysAccessible: false,
+  },
+  {
+    slug: "admin",
+    name: "Admin Panel",
+    description: "Manage user permissions and application access for the team",
+    icon: "&#x2699;&#xfe0f;",
+    iconClass: "icon-admin",
+    url: "/admin",
+    alwaysAccessible: false,
+  },
+];
+
+async function init() {
+  try {
+    const resp = await fetch("/auth/me");
+    if (resp.ok) {
+      const user = await resp.json();
+      if (user.authenticated) {
+        const firstName = (user.name || "").split(" ")[0] || "there";
+        document.getElementById("greeting").textContent = "Welcome, " + firstName;
+        renderApps(user.permissions || []);
+        return;
+      }
+    }
+  } catch (e) {}
+  renderApps([]);
+}
+
+function renderApps(userPerms) {
+  const grid = document.getElementById("appGrid");
+  const accessible = APP_DEFS.filter(app => app.alwaysAccessible || userPerms.includes(app.slug));
+
+  if (accessible.length === 0) {
+    grid.innerHTML = '<p style="color:var(--text-muted);text-align:center;grid-column:1/-1;">No applications available. Contact an admin for access.</p>';
+    return;
+  }
+
+  grid.innerHTML = accessible.map(app => {
+    return '<a class="app-card" href="' + app.url + '">' +
+      '<div class="icon ' + app.iconClass + '">' + app.icon + '</div>' +
+      '<div class="app-name">' + app.name + '</div>' +
+      '<div class="app-desc">' + app.description + '</div>' +
+      '<div class="app-arrow">&rarr;</div>' +
+    '</a>';
+  }).join("");
+}
+
+init();
+</script>
+<script src="/hub-navbar.js" defer></script>
+</body>
+</html>
