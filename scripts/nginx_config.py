@@ -61,22 +61,37 @@ def _config_path(app_name):
     return os.path.join(os.path.abspath(NGINX_APPS_DIR), f"{app_name}.conf")
 
 
-def _reload_nginx(dry_run=False):
-    """Reload Nginx to pick up config changes."""
+PROD_NGINX_SCRIPT = os.environ.get("PROD_NGINX_SCRIPT", "/var/www/aihub-admin/scripts/nginx_production.sh")
+
+
+def _reload_nginx(app_name=None, port=None, action="add", dry_run=False):
+    """Reload Nginx to pick up config changes. Also updates production system Nginx if script exists."""
+    # Docker Nginx (for local dev)
     cmd = ["docker", "exec", NGINX_CONTAINER, "nginx", "-s", "reload"]
     if dry_run:
         print(f"  [dry-run] Would run: {' '.join(cmd)}")
         return True
 
+    reloaded = False
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"  Warning: Nginx reload failed: {e.stderr}", file=sys.stderr)
-        return False
-    except FileNotFoundError:
-        print("  Warning: docker not found — skipping Nginx reload", file=sys.stderr)
-        return False
+        reloaded = True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    # Production system Nginx (if script exists on host)
+    if app_name and os.path.exists(PROD_NGINX_SCRIPT):
+        try:
+            prod_cmd = [PROD_NGINX_SCRIPT, app_name, str(port or 0), action]
+            subprocess.run(prod_cmd, check=True, capture_output=True, text=True)
+            print(f"  Updated production Nginx for {app_name}")
+            reloaded = True
+        except Exception as e:
+            print(f"  Warning: Production Nginx update failed: {e}", file=sys.stderr)
+
+    if not reloaded:
+        print("  Warning: No Nginx was reloaded", file=sys.stderr)
+    return reloaded
 
 
 def generate_config(app_name, port):
@@ -103,7 +118,7 @@ def add_app(app_name, port, dry_run=False):
         f.write(config)
     print(f"  Wrote {path}")
 
-    reloaded = _reload_nginx()
+    reloaded = _reload_nginx(app_name=app_name, port=port, action="add")
     if reloaded:
         return True, f"Added route /{app_name}/ → port {port}"
     return True, f"Added route /{app_name}/ → port {port} (Nginx reload failed — reload manually)"
@@ -124,7 +139,7 @@ def remove_app(app_name, dry_run=False):
     os.remove(path)
     print(f"  Removed {path}")
 
-    _reload_nginx()
+    _reload_nginx(app_name=app_name, action="remove")
     return True, f"Removed route /{app_name}/"
 
 
