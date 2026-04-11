@@ -1942,8 +1942,8 @@ async function loadSubmissions() {
         '</div>' +
         (s.description ? '<div class="queue-item-desc">' + escHtml(s.description) + '</div>' : '') +
         '<div class="queue-item-meta">' +
-          '<div>Port: <code>' + escHtml(s.port) + '</code></div>' +
           (s.repo_url ? '<div>Repo: <code>' + escHtml(s.repo_url) + '</code></div>' : '') +
+          '<div>Port: <code>' + escHtml(s.port) + '</code></div>' +
           '<div>By: ' + escHtml(s.submitted_by) + (s.reviewed_by ? ' &middot; Reviewed by: ' + escHtml(s.reviewed_by) : '') + '</div>' +
         '</div>' +
         actions +
