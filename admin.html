@@ -716,36 +716,7 @@
   <div class="tab-panel" id="tab-infrastructure">
     <div class="infra-grid">
 
-      <!-- SSH Keys card -->
-      <div class="infra-card full-width">
-        <h3>Server Access (SSH Keys) <span class="count" id="sshCount"></span></h3>
-        <div class="subtitle">
-          These keys grant root access to the VPS at <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px;">165.232.155.132</code>. Holders can deploy apps, restart services, and access all data on the server.
-        </div>
-        <div class="key-list" id="sshKeyList"><div class="empty-state" style="padding:30px;">Loading...</div></div>
-
-        <div class="add-key-form">
-          <div class="form-label">Add a new SSH key</div>
-          <details class="help-toggle">
-            <summary>How do I find my SSH key?</summary>
-            <div class="help-content">
-              <strong>Step 1: Check if you already have one</strong><br>
-              Open Terminal (Mac) or Command Prompt (Windows) and run:<br>
-              <code>cat ~/.ssh/id_ed25519.pub</code> or <code>cat ~/.ssh/id_rsa.pub</code><br>
-              If you see a key starting with <code>ssh-ed25519</code> or <code>ssh-rsa</code>, copy the entire line.<br><br>
-              <strong>Step 2: If you don't have one, create it</strong><br>
-              Run: <code>ssh-keygen -t ed25519 -C "your-name@egelloc.com"</code><br>
-              Press Enter for all prompts. Then copy: <code>cat ~/.ssh/id_ed25519.pub</code><br><br>
-              <strong style="color:var(--red);">Important:</strong> Only share the <code>.pub</code> file. Never share the file without <code>.pub</code> — that's your private key.
-            </div>
-          </details>
-          <textarea id="newSshKey" placeholder="Paste the public key here (starts with ssh-ed25519 or ssh-rsa)"></textarea>
-          <div class="add-key-row">
-            <input type="text" id="newSshComment" placeholder="Label (e.g., kate-macbook)">
-            <button class="add-user-btn" onclick="addSshKey()">Add Key</button>
-          </div>
-        </div>
-      </div>
+      <!-- SSH Keys section removed — server access managed by Victor/Tony only -->
 
       <!-- Database cards (dynamically rendered, side by side) -->
       <div id="dbSections" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;grid-column:1/-1;"><div class="empty-state" style="padding:30px;grid-column:1/-1;">Loading databases...</div></div>
@@ -1304,7 +1275,6 @@ function switchTab(tab, pushState) {
   }
 
   if (tab === "infrastructure") {
-    loadSSHKeys();
     loadDBUsers();
   }
   if (tab === "registry") {
