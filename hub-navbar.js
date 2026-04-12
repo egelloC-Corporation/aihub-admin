@@ -7,20 +7,29 @@
   ];
 
   // ── Styles ──
+  // Detect Streamlit — check for root+noscript pattern
+  var isStreamlit = !!document.querySelector('div#root') && !!document.querySelector('noscript');
+
   var style = document.createElement("style");
   style.textContent = [
-    ".hub-bar{position:fixed;top:10px;right:16px;z-index:99999;display:flex;align-items:center;gap:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}",
+    isStreamlit
+      ? ".hub-bar{position:fixed;bottom:20px;right:20px;top:auto;z-index:2147483647;display:flex;align-items:center;gap:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;pointer-events:auto}"
+      : ".hub-bar{position:fixed;top:10px;right:16px;z-index:99999;display:flex;align-items:center;gap:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}",
     ".hub-bar *{box-sizing:border-box}",
 
     // Waffle button
-    ".hub-waffle{width:36px;height:36px;border-radius:50%;border:none;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s}",
+    isStreamlit
+      ? ".hub-waffle{width:48px;height:48px;border-radius:50%;border:1px solid #2a2e3b;background:#1a1d27;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;box-shadow:0 4px 16px rgba(0,0,0,0.4);pointer-events:auto}"
+      : ".hub-waffle{width:36px;height:36px;border-radius:50%;border:none;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s}",
     ".hub-waffle:hover{background:rgba(255,255,255,0.1)}",
     ".hub-waffle svg{width:20px;height:20px;fill:#8b8fa3}",
     ".hub-waffle:hover svg{fill:#e4e6eb}",
 
 
     // Dropdown panel
-    ".hub-dropdown{display:none;position:absolute;top:44px;right:0;background:#1a1d27;border:1px solid #2a2e3b;border-radius:12px;width:320px;box-shadow:0 8px 32px rgba(0,0,0,0.4);overflow:hidden}",
+    isStreamlit
+      ? ".hub-dropdown{display:none;position:absolute;bottom:56px;right:0;top:auto;background:#1a1d27;border:1px solid #2a2e3b;border-radius:12px;width:320px;box-shadow:0 8px 32px rgba(0,0,0,0.4);overflow:hidden;pointer-events:auto}"
+      : ".hub-dropdown{display:none;position:absolute;top:44px;right:0;background:#1a1d27;border:1px solid #2a2e3b;border-radius:12px;width:320px;box-shadow:0 8px 32px rgba(0,0,0,0.4);overflow:hidden}",
     ".hub-dropdown.open{display:block}",
 
     // User header in dropdown
