@@ -249,18 +249,19 @@ def auth_check():
 
 
 # ── Admin: who can access the admin panel ──
-SUPER_ADMINS = ["victor@egelloc.com", "tony@egelloc.com", "art@egelloc.com", "dollie@egelloc.com", "viktoriya@egelloc.com"]
+# Access is controlled by the 'admin' permission toggle in the Permissions tab.
+# No hardcoded list needed — toggle it on for anyone who needs admin access.
 
 
 def admin_required(f):
-    """Decorator that enforces admin access — must be in SUPER_ADMINS AND have 'admin' permission."""
+    """Decorator that enforces admin access — user must have the 'admin' permission."""
     @functools.wraps(f)
     def decorated(*args, **kwargs):
         user = session.get("user")
         if not user:
             return redirect(url_for("login"))
         email = user["email"].lower()
-        if email not in [e.lower() for e in SUPER_ADMINS] or not user_has_permission(email, "admin"):
+        if not user_has_permission(email, "admin"):
             return Response(
                 '<!DOCTYPE html><html><head><title>Access Denied</title>'
                 '<style>body{background:#0f1117;color:#e4e6eb;font-family:-apple-system,sans-serif;'
