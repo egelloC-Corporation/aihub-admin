@@ -970,18 +970,28 @@ async function loadData() {
   });
 
   // Populate role filter dynamically from user data
-  const roleSet = new Set();
+  // Normalize: admin/super_admin/Admin → "Admin", coach/Coach → "Coach", etc.
+  var roleMap = {}; // normalized display name → set of raw values that match
   DATA.users.forEach(u => {
-    if (u.roles) u.roles.split(",").forEach(r => { r = r.trim(); if (r) roleSet.add(r); });
-    if (u.role) roleSet.add(u.role.trim());
+    var rawRoles = [];
+    if (u.roles) u.roles.split(",").forEach(r => { r = r.trim(); if (r) rawRoles.push(r); });
+    if (u.role && u.role.trim()) rawRoles.push(u.role.trim());
+    rawRoles.forEach(r => {
+      var normalized = r.replace(/_/g, " ").trim();
+      normalized = normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
+      // Merge "Super admin" into "Admin"
+      if (normalized === "Super admin") normalized = "Admin";
+      if (!roleMap[normalized]) roleMap[normalized] = [];
+      if (roleMap[normalized].indexOf(r) === -1) roleMap[normalized].push(r);
+    });
   });
   const roleSelect = document.getElementById("roleFilter");
   const currentRole = roleSelect.value;
   roleSelect.innerHTML = '<option value="">All Roles</option>';
-  Array.from(roleSet).sort().forEach(r => {
+  Object.keys(roleMap).sort().forEach(display => {
     const opt = document.createElement("option");
-    opt.value = r;
-    opt.textContent = r.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    opt.value = roleMap[display].join("|");
+    opt.textContent = display;
     roleSelect.appendChild(opt);
   });
   roleSelect.value = currentRole;
@@ -1016,7 +1026,11 @@ function render() {
   let filtered = DATA.users.filter(u => {
     const name = (u.first_name + " " + u.last_name + " " + u.email).toLowerCase();
     if (search && !name.includes(search)) return false;
-    if (roleFilter && !(u.roles || "").includes(roleFilter)) return false;
+    if (roleFilter) {
+      var userRoles = ((u.roles || "") + "," + (u.role || "")).toLowerCase();
+      var matchRoles = roleFilter.split("|");
+      if (!matchRoles.some(r => userRoles.includes(r.toLowerCase()))) return false;
+    }
     if (accessFilter === "__has" && u.permissions.length === 0) return false;
     if (accessFilter === "__none" && u.permissions.length > 0) return false;
     // App pills: user must have ALL selected apps
