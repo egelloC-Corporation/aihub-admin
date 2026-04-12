@@ -1528,23 +1528,20 @@ async function loadNetworkRules(dbSlug) {
     return;
   }
 
+  // Show all trusted IPs from DigitalOcean, with labels from localStorage if available
   var tracked = getTrackedIps(dbSlug);
-  var activeIpSet = rules.map(function(r) { return r.value; });
-  var userRules = tracked.filter(function(t) { return activeIpSet.includes(t.ip); });
+  var trackedMap = {};
+  tracked.forEach(function(t) { trackedMap[t.ip] = t; });
 
-  if (userRules.length === 0) {
-    container.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">' + rules.length + ' trusted IPs configured. Add yours below to connect.</span>';
-    return;
-  }
-
-  container.innerHTML = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">' + rules.length + ' trusted IPs total. Your additions:</div>' +
-    '<table class="db-table"><thead><tr><th>Label</th><th>IP Address</th><th>Added</th><th style="width:70px;"></th></tr></thead><tbody>' +
-    userRules.map(function(r) {
+  container.innerHTML = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">' + rules.length + ' trusted IPs configured.</div>' +
+    '<table class="db-table"><thead><tr><th>IP Address</th><th>Label</th><th style="width:70px;"></th></tr></thead><tbody>' +
+    rules.map(function(r) {
+      var info = trackedMap[r.value] || {};
+      var isProtected = r.value === "165.232.155.132";
       return '<tr>' +
-        '<td><strong>' + (r.label || '—') + '</strong></td>' +
-        '<td><code style="font-size:12px;">' + r.ip + '</code></td>' +
-        '<td style="font-size:12px;color:var(--text-muted);">' + (r.date || '—') + '</td>' +
-        '<td style="text-align:right;"><button class="key-remove" onclick="removeIp(\'' + dbSlug + "','" + r.ip + '\')">Remove</button></td>' +
+        '<td><code style="font-size:12px;">' + escHtml(r.value) + '</code></td>' +
+        '<td style="font-size:12px;color:var(--text-muted);">' + escHtml(info.label || '') + '</td>' +
+        '<td style="text-align:right;">' + (isProtected ? '' : '<button class="key-remove" onclick="removeIp(\'' + dbSlug + "','" + r.value + '\')">Remove</button>') + '</td>' +
         '</tr>';
     }).join("") + '</tbody></table>';
 }
