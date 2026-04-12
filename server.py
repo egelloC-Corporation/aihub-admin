@@ -831,7 +831,7 @@ def github_webhook():
     if "aihub-admin" in repo_name.lower():
         try:
             webhook_subprocess.Popen(
-                ["bash", "-c", "cd /var/www/aihub-admin && git fetch origin && git reset --hard origin/main && docker compose up --build -d"],
+                ["bash", "-c", "cd /var/www/aihub-admin && git fetch origin && git reset --hard origin/main && cp docker-compose.production.yml docker-compose.yml && docker compose up --build -d"],
                 stdout=webhook_subprocess.DEVNULL, stderr=webhook_subprocess.DEVNULL,
             )
             results.append({"app": "admin-panel", "status": "triggered"})
