@@ -1578,10 +1578,28 @@ function getIpLabel(dbSlug, ip) {
 
 function editIpLabel(dbSlug, ip, el) {
   var current = getIpLabel(dbSlug, ip).label || "";
-  var newLabel = prompt("Label for " + ip + ":", current);
-  if (newLabel === null) return;
-  trackAddedIp(dbSlug, ip, newLabel.trim());
-  el.textContent = newLabel.trim() || "—";
+  var input = document.createElement("input");
+  input.type = "text";
+  input.value = current;
+  input.placeholder = "Enter label...";
+  input.style.cssText = "width:140px;padding:3px 6px;font-size:12px;background:var(--bg);border:1px solid var(--accent);border-radius:4px;color:var(--text);outline:none;";
+  el.textContent = "";
+  el.appendChild(input);
+  input.focus();
+  input.select();
+
+  function save() {
+    var val = input.value.trim();
+    trackAddedIp(dbSlug, ip, val);
+    el.textContent = val || "click to label";
+    el.style.cursor = "pointer";
+  }
+
+  input.addEventListener("blur", save);
+  input.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    if (e.key === "Escape") { el.textContent = current || "click to label"; }
+  });
 }
 
 // Load on page init
