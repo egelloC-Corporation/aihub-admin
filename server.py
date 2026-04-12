@@ -213,7 +213,7 @@ def knowledge_proxy(path=""):
     # Next.js with basePath=/knowledge: /knowledge (no slash) returns 200,
     # /knowledge/ (with slash) returns 308 redirect. So always strip trailing slash.
     target_path = f"knowledge/{path}".rstrip("/")
-    target = f"http://localhost:3004/{target_path}"
+    target = f"http://host.docker.internal:3004/{target_path}"
     if request.query_string:
         target += f"?{request.query_string.decode()}"
     resp = proxy_requests.request(

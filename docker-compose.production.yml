@@ -1,0 +1,91 @@
+services:
+  admin-panel:
+    build: .
+    container_name: aihub-admin-panel
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    ports:
+      - "5051:5051"
+    env_file: .env
+    environment:
+      - DEPLOY_SERVICE_URL=http://deploy-service:5001
+    volumes:
+      - ./permissions.db:/app/permissions.db
+      - ./briefer-assets/index_prod.html:/app/index_prod.html:ro
+      - ./briefer-assets/index.html:/app/index.html:ro
+      - ./briefer-assets/assets:/app/assets:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',5051),2); s.close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aihub
+
+  deploy-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.deploy
+    container_name: aihub-deploy-service
+    restart: unless-stopped
+    expose:
+      - "5001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./apps:/app/apps
+      - ./nginx/apps:/app/nginx/apps
+      - ./.env:/app/platform.env:ro
+    environment:
+      - DOCKER_NETWORK=aihub
+      - NGINX_APPS_DIR=/app/nginx/apps
+      - NGINX_CONTAINER=aihub-nginx
+      - APPS_DIR=/app/apps
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=aihub
+      - POSTGRES_USER=${POSTGRES_USER:-aihub_admin}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aihub_local_dev}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - PLATFORM_ENV_FILE=/app/platform.env
+      - AIHUB_AUTH_URL=http://admin-panel:5051/auth/me
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aihub
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: aihub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aihub
+      POSTGRES_USER: ${POSTGRES_USER:-aihub_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aihub_local_dev}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aihub_admin} -d aihub"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - aihub
+
+volumes:
+  postgres_data:
+
+networks:
+  aihub:
+    name: aihub
+    driver: bridge
