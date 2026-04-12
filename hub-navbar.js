@@ -13,7 +13,7 @@
   var style = document.createElement("style");
   style.textContent = [
     isStreamlit
-      ? ".hub-bar{position:fixed;bottom:80px;right:20px;top:auto;z-index:2147483647;display:flex;align-items:center;gap:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;pointer-events:auto}"
+      ? ".hub-bar{position:fixed;bottom:20px;right:20px;top:auto;z-index:2147483647;display:flex;align-items:center;gap:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;pointer-events:auto}"
       : ".hub-bar{position:fixed;top:10px;right:16px;z-index:99999;display:flex;align-items:center;gap:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}",
     ".hub-bar *{box-sizing:border-box}",
 
