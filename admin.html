@@ -683,11 +683,6 @@
     <input class="search-input" type="text" id="searchInput" placeholder="Search by name or email...">
     <select class="filter-select" id="roleFilter">
       <option value="">All Roles</option>
-      <option value="super_admin">Super Admin</option>
-      <option value="admin">Admin</option>
-      <option value="coach">Coach</option>
-      <option value="CX">CX</option>
-      <option value="Strategist">Strategist</option>
     </select>
     <select class="filter-select" id="accessFilter">
       <option value="">All Users</option>
@@ -973,6 +968,23 @@ async function loadData() {
     };
     pillContainer.appendChild(btn);
   });
+
+  // Populate role filter dynamically from user data
+  const roleSet = new Set();
+  DATA.users.forEach(u => {
+    if (u.roles) u.roles.split(",").forEach(r => { r = r.trim(); if (r) roleSet.add(r); });
+    if (u.role) roleSet.add(u.role.trim());
+  });
+  const roleSelect = document.getElementById("roleFilter");
+  const currentRole = roleSelect.value;
+  roleSelect.innerHTML = '<option value="">All Roles</option>';
+  Array.from(roleSet).sort().forEach(r => {
+    const opt = document.createElement("option");
+    opt.value = r;
+    opt.textContent = r.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    roleSelect.appendChild(opt);
+  });
+  roleSelect.value = currentRole;
 
   // App column headers
   const headerRow = document.querySelector(".perm-table thead tr");
