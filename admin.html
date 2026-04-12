@@ -1528,47 +1528,64 @@ async function loadNetworkRules(dbSlug) {
     return;
   }
 
-  // Show all trusted IPs from DigitalOcean, with labels from localStorage if available
-  var tracked = getTrackedIps(dbSlug);
-  var trackedMap = {};
-  tracked.forEach(function(t) { trackedMap[t.ip] = t; });
-
+  // Show all trusted IPs from DigitalOcean with server-side labels
   container.innerHTML = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">' + rules.length + ' trusted IPs configured.</div>' +
     '<table class="db-table"><thead><tr><th>IP Address</th><th>Label</th><th style="width:70px;"></th></tr></thead><tbody>' +
     rules.map(function(r) {
-      var info = trackedMap[r.value] || {};
+      var info = getIpLabel(dbSlug, r.value);
       var isProtected = r.value === "165.232.155.132";
       return '<tr>' +
         '<td><code style="font-size:12px;">' + escHtml(r.value) + '</code></td>' +
-        '<td style="font-size:12px;color:var(--text-muted);">' + escHtml(info.label || '') + '</td>' +
+        '<td style="font-size:12px;color:var(--text-muted);cursor:pointer;" onclick="editIpLabel(\'' + dbSlug + '\',\'' + r.value + '\', this)" title="Click to edit label">' + escHtml(info.label || '—') + '</td>' +
         '<td style="text-align:right;">' + (isProtected ? '' : '<button class="key-remove" onclick="removeIp(\'' + dbSlug + "','" + r.value + '\')">Remove</button>') + '</td>' +
         '</tr>';
     }).join("") + '</tbody></table>';
 }
 
+// IP labels stored server-side so they persist across browsers
+var _ipLabels = {};
+
+async function loadIpLabels() {
+  try {
+    var resp = await fetch("/admin/api/ip-labels");
+    if (resp.ok) _ipLabels = await resp.json();
+  } catch(e) {}
+}
+
 function trackAddedIp(dbSlug, ip, label) {
-  var key = "addedIps_" + dbSlug;
-  var list = JSON.parse(localStorage.getItem(key) || "[]");
-  // Migrate old format (plain strings) to objects
-  list = list.map(function(x) { return typeof x === "string" ? { ip: x, label: "", date: "" } : x; });
-  if (!list.some(function(x) { return x.ip === ip; })) {
-    list.push({ ip: ip, label: label || "", date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) });
-  }
-  localStorage.setItem(key, JSON.stringify(list));
+  var key = dbSlug + ":" + ip;
+  _ipLabels[key] = { label: label || "", date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) };
+  fetch("/admin/api/ip-labels", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ key: key, label: _ipLabels[key].label, date: _ipLabels[key].date }),
+  });
 }
 
 function untrackAddedIp(dbSlug, ip) {
-  var key = "addedIps_" + dbSlug;
-  var list = JSON.parse(localStorage.getItem(key) || "[]");
-  list = list.filter(function(x) { return (typeof x === "string" ? x : x.ip) !== ip; });
-  localStorage.setItem(key, JSON.stringify(list));
+  var key = dbSlug + ":" + ip;
+  delete _ipLabels[key];
+  fetch("/admin/api/ip-labels/remove", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ key: key }),
+  });
 }
 
-function getTrackedIps(dbSlug) {
-  var key = "addedIps_" + dbSlug;
-  var list = JSON.parse(localStorage.getItem(key) || "[]");
-  return list.map(function(x) { return typeof x === "string" ? { ip: x, label: "", date: "" } : x; });
+function getIpLabel(dbSlug, ip) {
+  return _ipLabels[dbSlug + ":" + ip] || {};
 }
+
+function editIpLabel(dbSlug, ip, el) {
+  var current = getIpLabel(dbSlug, ip).label || "";
+  var newLabel = prompt("Label for " + ip + ":", current);
+  if (newLabel === null) return;
+  trackAddedIp(dbSlug, ip, newLabel.trim());
+  el.textContent = newLabel.trim() || "—";
+}
+
+// Load on page init
+loadIpLabels();
 
 async function addMyIp(dbSlug) {
   const ipResp = await fetch("/admin/api/my-ip");
@@ -1618,7 +1635,8 @@ async function addIp(dbSlug) {
 }
 
 async function removeIp(dbSlug, ip) {
-  if (!confirm("Remove " + ip + " from trusted sources?")) return;
+  if (!confirm("Remove " + ip + " from trusted sources?\n\nThis will immediately revoke database access for this IP.")) return;
+  if (!confirm("Are you sure? This cannot be undone without re-adding the IP.")) return;
 
   const resp = await fetch("/admin/api/network-access/remove", {
     method: "POST",

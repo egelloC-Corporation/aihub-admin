@@ -731,6 +731,50 @@ def api_test_deploy():
 
 SSH_AUTHORIZED_KEYS_FILE = os.path.expanduser("~/.ssh/authorized_keys")
 SSH_ALIASES_FILE = os.path.join(os.path.dirname(__file__), "ssh_aliases.json")
+IP_LABELS_FILE = os.path.join(os.path.dirname(__file__), "ip_labels.json")
+
+
+def load_ip_labels():
+    try:
+        with open(IP_LABELS_FILE, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_ip_labels(labels):
+    with open(IP_LABELS_FILE, "w") as f:
+        json.dump(labels, f, indent=2)
+
+
+@app.route("/admin/api/ip-labels")
+@admin_required
+def api_ip_labels():
+    return jsonify(load_ip_labels())
+
+
+@app.route("/admin/api/ip-labels", methods=["POST"])
+@admin_required
+def api_set_ip_label():
+    body = request.get_json()
+    key = body.get("key", "")
+    label = body.get("label", "")
+    date = body.get("date", "")
+    labels = load_ip_labels()
+    labels[key] = {"label": label, "date": date}
+    save_ip_labels(labels)
+    return jsonify({"status": "ok"})
+
+
+@app.route("/admin/api/ip-labels/remove", methods=["POST"])
+@admin_required
+def api_remove_ip_label():
+    body = request.get_json()
+    key = body.get("key", "")
+    labels = load_ip_labels()
+    labels.pop(key, None)
+    save_ip_labels(labels)
+    return jsonify({"status": "ok"})
 
 
 def load_ssh_aliases():
