@@ -21,7 +21,14 @@ from authlib.integrations.flask_client import OAuth
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from coach_briefing import DB_CONFIG
+# MySQL config for staff list (Nest DB)
+DB_CONFIG = {
+    "host": os.environ.get("DB_HOST", "localhost"),
+    "port": int(os.environ.get("DB_PORT", "3306")),
+    "user": os.environ.get("DB_USER", ""),
+    "password": os.environ.get("DB_PASSWORD", ""),
+    "database": os.environ.get("DB_NAME", "egelloc"),
+}
 from permissions import (
     get_user_permissions, user_has_permission, grant_permission,
     revoke_permission, get_all_permissions, get_all_apps, get_egelloc_staff,
