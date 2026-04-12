@@ -819,7 +819,7 @@ def github_webhook():
     if "egelloc-ai-hub" in repo_name.lower():
         try:
             webhook_subprocess.Popen(
-                ["bash", "-c", "cd /var/www/egelloc-ai-hub && git pull && npm run build && pm2 restart ai-hub"],
+                ["bash", "-c", "cd /var/www/egelloc-ai-hub && git fetch origin && git reset --hard origin/main && npm run build && pm2 restart ai-hub"],
                 stdout=webhook_subprocess.DEVNULL, stderr=webhook_subprocess.DEVNULL,
             )
             results.append({"app": "knowledge-base", "status": "triggered"})
@@ -831,7 +831,7 @@ def github_webhook():
     if "aihub-admin" in repo_name.lower():
         try:
             webhook_subprocess.Popen(
-                ["bash", "-c", "cd /var/www/aihub-admin && git pull && docker compose up --build -d"],
+                ["bash", "-c", "cd /var/www/aihub-admin && git fetch origin && git reset --hard origin/main && docker compose up --build -d"],
                 stdout=webhook_subprocess.DEVNULL, stderr=webhook_subprocess.DEVNULL,
             )
             results.append({"app": "admin-panel", "status": "triggered"})
