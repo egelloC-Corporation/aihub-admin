@@ -128,11 +128,15 @@ def auth_callback():
 
     email = user_info.get("email", "")
     if not email.endswith(f"@{ALLOWED_DOMAIN}"):
-        return Response(
-            f"Access denied. Only @{ALLOWED_DOMAIN} accounts are allowed.",
-            status=403,
-            content_type="text/plain",
-        )
+        # Allow custom users added by admins (consultants, partners)
+        from permissions import get_custom_users
+        allowed_emails = [u["email"].lower() for u in get_custom_users()]
+        if email.lower() not in allowed_emails:
+            return Response(
+                f"Access denied. Only @{ALLOWED_DOMAIN} accounts or invited users are allowed.",
+                status=403,
+                content_type="text/plain",
+            )
 
     session["user"] = {
         "email": email,
