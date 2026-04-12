@@ -1536,7 +1536,7 @@ async function loadNetworkRules(dbSlug) {
       var isProtected = r.value === "165.232.155.132";
       return '<tr>' +
         '<td><code style="font-size:12px;">' + escHtml(r.value) + '</code></td>' +
-        '<td style="font-size:12px;color:var(--text-muted);cursor:pointer;" onclick="editIpLabel(\'' + dbSlug + '\',\'' + r.value + '\', this)" title="Click to edit label">' + escHtml(info.label || '—') + '</td>' +
+        '<td style="font-size:12px;color:var(--text-muted);"><span style="cursor:pointer;border-bottom:1px dashed var(--text-dim);padding-bottom:1px;" onclick="editIpLabel(\'' + dbSlug + '\',\'' + escHtml(r.value) + '\', this)" title="Click to edit label">' + escHtml(info.label || 'click to label') + '</span></td>' +
         '<td style="text-align:right;">' + (isProtected ? '' : '<button class="key-remove" onclick="removeIp(\'' + dbSlug + "','" + r.value + '\')">Remove</button>') + '</td>' +
         '</tr>';
     }).join("") + '</tbody></table>';
