@@ -527,8 +527,7 @@ def api_my_submissions():
 @app.route("/admin/api/apps/approve", methods=["POST"])
 @admin_required
 def api_approve_app():
-    """Approve a pending app submission. Registers the app but does NOT deploy.
-    Admin must click Deploy separately after approval."""
+    """Approve a pending app submission and trigger auto-deploy."""
     body = request.get_json()
     submission_id = body.get("id")
     if not submission_id:
@@ -538,6 +537,25 @@ def api_approve_app():
     result = approve_submission(submission_id, reviewed_by)
     if "error" in result:
         return jsonify(result), 404
+
+    # Auto-deploy after approval
+    try:
+        from permissions import get_db
+        conn = get_db()
+        row = conn.execute("SELECT slug, port, repo_url, repo_subdir FROM app_submissions WHERE id = ?", (submission_id,)).fetchone()
+        conn.close()
+        if row and row["repo_url"]:
+            deploy_payload = {
+                "app_name": row["slug"],
+                "port": row["port"],
+                "repo_url": row["repo_url"],
+                "repo_subdir": row["repo_subdir"] or None,
+            }
+            http_requests.post(f"{DEPLOY_SERVICE_URL}/deploy", json=deploy_payload, timeout=5)
+            result["auto_deploy"] = "triggered"
+    except Exception:
+        result["auto_deploy"] = "skipped"
+
     return jsonify(result)
 
 
@@ -725,6 +743,110 @@ def api_test_deploy():
         return jsonify({"error": "Deploy service unavailable"}), 503
     except http_requests.Timeout:
         return jsonify({"error": "Test timed out"}), 504
+
+
+# ── GitHub Webhook: auto-deploy on push ──
+
+import hashlib
+import hmac
+import subprocess as webhook_subprocess
+
+WEBHOOK_SECRET = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
+
+
+def verify_webhook_signature(payload, signature):
+    """Verify GitHub webhook HMAC signature."""
+    if not WEBHOOK_SECRET:
+        return True  # No secret configured — allow (for dev)
+    if not signature:
+        return False
+    expected = "sha256=" + hmac.new(WEBHOOK_SECRET.encode(), payload, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+@app.route("/webhook/github", methods=["POST"])
+def github_webhook():
+    """Auto-deploy apps when code is pushed to GitHub."""
+    # Verify signature
+    payload = request.get_data()
+    signature = request.headers.get("X-Hub-Signature-256", "")
+    if not verify_webhook_signature(payload, signature):
+        return jsonify({"error": "Invalid signature"}), 403
+
+    event = request.headers.get("X-GitHub-Event", "")
+    if event != "push":
+        return jsonify({"status": "ignored", "event": event}), 200
+
+    body = request.get_json(silent=True) or {}
+    repo_url = body.get("repository", {}).get("clone_url", "")
+    repo_name = body.get("repository", {}).get("full_name", "")
+    branch = body.get("ref", "").replace("refs/heads/", "")
+
+    # Only deploy from main/master branch
+    if branch not in ("main", "master"):
+        return jsonify({"status": "ignored", "branch": branch}), 200
+
+    log.info("Webhook push: %s (branch: %s)", repo_name, branch)
+
+    results = []
+
+    # Check if any deployed apps use this repo
+    from permissions import get_db
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT slug, port, repo_url, repo_subdir FROM app_submissions WHERE status = 'live' AND repo_url != ''"
+    ).fetchall()
+    conn.close()
+
+    for row in rows:
+        # Match by repo URL (normalize trailing .git)
+        app_repo = row["repo_url"].rstrip("/").removesuffix(".git")
+        push_repo = repo_url.rstrip("/").removesuffix(".git")
+        if app_repo.lower() == push_repo.lower():
+            try:
+                resp = http_requests.post(
+                    f"{DEPLOY_SERVICE_URL}/deploy",
+                    json={
+                        "app_name": row["slug"],
+                        "port": row["port"],
+                        "repo_url": row["repo_url"],
+                        "repo_subdir": row["repo_subdir"] or None,
+                    },
+                    timeout=5,
+                )
+                results.append({"app": row["slug"], "status": "triggered"})
+                log.info("Auto-deploy triggered for %s", row["slug"])
+            except Exception as e:
+                results.append({"app": row["slug"], "status": "error", "detail": str(e)})
+
+    # Special case: knowledge base
+    if "ai-hub" in repo_name.lower() or "egelloc-ai-hub" in repo_name.lower():
+        try:
+            webhook_subprocess.Popen(
+                ["bash", "-c", "cd /var/www/egelloc-ai-hub && git pull && npm run build && pm2 restart ai-hub"],
+                stdout=webhook_subprocess.DEVNULL, stderr=webhook_subprocess.DEVNULL,
+            )
+            results.append({"app": "knowledge-base", "status": "triggered"})
+            log.info("Auto-deploy triggered for knowledge base")
+        except Exception as e:
+            results.append({"app": "knowledge-base", "status": "error", "detail": str(e)})
+
+    # Special case: admin panel itself
+    if "aihub-admin" in repo_name.lower():
+        try:
+            webhook_subprocess.Popen(
+                ["bash", "-c", "cd /var/www/aihub-admin && git pull && docker compose up --build -d"],
+                stdout=webhook_subprocess.DEVNULL, stderr=webhook_subprocess.DEVNULL,
+            )
+            results.append({"app": "admin-panel", "status": "triggered"})
+            log.info("Auto-deploy triggered for admin panel")
+        except Exception as e:
+            results.append({"app": "admin-panel", "status": "error", "detail": str(e)})
+
+    if not results:
+        return jsonify({"status": "no_match", "repo": repo_name}), 200
+
+    return jsonify({"status": "ok", "deploys": results}), 200
 
 
 # ── Infrastructure access management ──

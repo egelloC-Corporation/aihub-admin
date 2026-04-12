@@ -2121,7 +2121,7 @@ async function deleteApp(id, slug) {
 }
 
 async function approveApp(id) {
-  if (!confirm("Approve this app? You can deploy it separately after approval.")) return;
+  if (!confirm("Approve and deploy this app?")) return;
 
   var resp = await fetch("/admin/api/apps/approve", {
     method: "POST",
@@ -2132,8 +2132,10 @@ async function approveApp(id) {
 
   if (data.error) {
     showToast("Error: " + data.error);
+  } else if (data.auto_deploy === "triggered") {
+    showToast("App approved — deploying now. Go to Permissions to grant access.");
   } else {
-    showToast("App approved — ready to deploy");
+    showToast("App approved — deploy manually if needed.");
   }
   loadSubmissions();
 }
