@@ -820,7 +820,7 @@ def github_webhook():
                 results.append({"app": row["slug"], "status": "error", "detail": str(e)})
 
     # Special case: knowledge base
-    if "ai-hub" in repo_name.lower() or "egelloc-ai-hub" in repo_name.lower():
+    if "egelloc-ai-hub" in repo_name.lower():
         try:
             webhook_subprocess.Popen(
                 ["bash", "-c", "cd /var/www/egelloc-ai-hub && git pull && npm run build && pm2 restart ai-hub"],
