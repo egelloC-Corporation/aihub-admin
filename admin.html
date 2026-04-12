@@ -801,6 +801,31 @@ Note: If you're updating an existing app, just resubmit with the same slug — i
       </div>
     </div>
 
+    <div class="getting-started" style="cursor:pointer;margin-top:12px;" onclick="var b=this.querySelector('.getting-started-body');var a=this.querySelector('.getting-started-arrow');if(b.style.display==='none'){b.style.display='block';a.textContent='\u25bc';}else{b.style.display='none';a.textContent='\u25b6';}">
+      <div class="getting-started-title" style="display:flex;align-items:center;gap:8px;">
+        <span class="getting-started-arrow" style="font-size:12px;color:var(--text-dim);">&#x25b6;</span>
+        How deployment works
+        <span class="badge">Workflow</span>
+      </div>
+      <div class="getting-started-body" style="display:none;" onclick="event.stopPropagation();">
+        <div class="lead" style="margin-top:12px;line-height:1.7;">
+          <strong>First time:</strong> Submit your app below &rarr; an admin approves it &rarr; it auto-deploys and appears in the launcher.<br><br>
+          <strong>After that:</strong> Just push to GitHub. Your app auto-redeploys on every push to the main branch — no admin action needed.<br><br>
+          <strong>One-time setup for auto-deploy:</strong> After your app is approved, add a webhook to your GitHub repo:<br>
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:8px 0;font-size:13px;">
+            Go to your repo &rarr; <strong>Settings</strong> &rarr; <strong>Webhooks</strong> &rarr; <strong>Add webhook</strong><br><br>
+            <table style="font-size:12px;color:var(--text-muted);">
+              <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Payload URL</td><td><code>https://aihub.egelloc.com/webhook/github</code></td></tr>
+              <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Content type</td><td><code>application/json</code></td></tr>
+              <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Secret</td><td>Ask an admin for the webhook secret</td></tr>
+              <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Events</td><td>Just the <strong>push</strong> event</td></tr>
+            </table>
+          </div>
+          That's it. Push to main and your changes go live automatically.
+        </div>
+      </div>
+    </div>
+
     <div class="registry-layout">
 
       <!-- Register an App form -->
@@ -865,7 +890,7 @@ SECRET_TOKEN</span></span>
       <!-- Approval Queue -->
       <div class="registry-card">
         <h3>Approval Queue</h3>
-        <div class="subtitle">Review and approve pending app submissions. Deploy separately after approval.</div>
+        <div class="subtitle">Review and approve pending app submissions. Apps auto-deploy on approval and on every push to GitHub.</div>
         <div class="queue-list" id="queueList">
           <div class="queue-empty">Loading...</div>
         </div>
