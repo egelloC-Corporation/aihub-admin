@@ -921,8 +921,14 @@ SECRET_TOKEN</span></span>
       <input type="text" id="addLast" placeholder="Last name">
     </div>
     <div class="modal-field">
-      <label>Role (optional)</label>
-      <input type="text" id="addRole" placeholder="e.g. coach, CX, admin">
+      <label>Role</label>
+      <select id="addRole" style="width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;">
+        <option value="">Select a role...</option>
+      </select>
+      <div style="margin-top:6px;display:flex;gap:6px;align-items:center;">
+        <input type="text" id="addRoleCustom" placeholder="Or add a new role" style="flex:1;padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;">
+        <button type="button" onclick="addCustomRole()" style="padding:6px 12px;background:var(--accent-dim);border:1px solid var(--accent);color:var(--accent);border-radius:6px;font-size:12px;cursor:pointer;white-space:nowrap;">+ Add</button>
+      </div>
     </div>
     <div class="modal-error" id="addError"></div>
     <div class="modal-actions">
@@ -1165,9 +1171,51 @@ function openAddUser() {
   document.getElementById("addEmail").value = "";
   document.getElementById("addFirst").value = "";
   document.getElementById("addLast").value = "";
-  document.getElementById("addRole").value = "";
+  document.getElementById("addRoleCustom").value = "";
   document.getElementById("addError").style.display = "none";
+
+  // Populate role dropdown from existing roles
+  var roleSelect = document.getElementById("addRole");
+  roleSelect.innerHTML = '<option value="">Select a role...</option>';
+  var seen = new Set();
+  DATA.users.forEach(function(u) {
+    var roles = [];
+    if (u.roles) u.roles.split(",").forEach(function(r) { r = r.trim(); if (r) roles.push(r); });
+    if (u.role && u.role.trim()) roles.push(u.role.trim());
+    roles.forEach(function(r) {
+      var display = r.replace(/_/g, " ").replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+      if (!seen.has(display)) {
+        seen.add(display);
+        var opt = document.createElement("option");
+        opt.value = r;
+        opt.textContent = display;
+        roleSelect.appendChild(opt);
+      }
+    });
+  });
+
   document.getElementById("addEmail").focus();
+}
+
+function addCustomRole() {
+  var input = document.getElementById("addRoleCustom");
+  var val = input.value.trim();
+  if (!val) return;
+  var select = document.getElementById("addRole");
+  // Check if already exists
+  for (var i = 0; i < select.options.length; i++) {
+    if (select.options[i].textContent.toLowerCase() === val.toLowerCase()) {
+      select.value = select.options[i].value;
+      input.value = "";
+      return;
+    }
+  }
+  var opt = document.createElement("option");
+  opt.value = val;
+  opt.textContent = val;
+  select.appendChild(opt);
+  select.value = val;
+  input.value = "";
 }
 
 function closeAddUser() {
@@ -1183,11 +1231,6 @@ async function submitAddUser() {
 
   if (!email || !first || !last) {
     errEl.textContent = "Email, first name, and last name are required.";
-    errEl.style.display = "block";
-    return;
-  }
-  if (!email.endsWith("@egelloc.com")) {
-    errEl.textContent = "Only @egelloc.com emails are allowed.";
     errEl.style.display = "block";
     return;
   }
