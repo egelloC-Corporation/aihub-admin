@@ -378,8 +378,6 @@ def admin_add_user():
 
     if not email or not first_name or not last_name:
         return jsonify({"error": "email, first_name, and last_name are required"}), 400
-    if not email.endswith("@egelloc.com"):
-        return jsonify({"error": "Only @egelloc.com emails allowed"}), 400
 
     admin_email = session["user"]["email"]
     add_custom_user(email, first_name, last_name, role, admin_email)
