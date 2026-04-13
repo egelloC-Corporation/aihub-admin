@@ -234,6 +234,24 @@ def _start_container(app_name, port, streamlit_port=None, dry_run=False):
         cmd.insert(-1, "--env-file")
         cmd.insert(-1, env_path)
 
+    # Persist generated files across rebuilds via volumes.txt in the app dir.
+    # Each line: relative_host_path:/container/path
+    # Host path is resolved relative to APPS_DIR/{app_name}/.
+    # On first deploy the file from the repo is used; thereafter the host
+    # copy (updated by cron/scripts) survives redeploys.
+    volumes_path = os.path.join(APPS_DIR, app_name, "volumes.txt")
+    if os.path.exists(volumes_path):
+        app_dir = os.path.join(APPS_DIR, app_name)
+        with open(volumes_path) as vf:
+            for line in vf:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                host_rel, _, container_path = line.partition(":")
+                host_abs = os.path.abspath(os.path.join(app_dir, host_rel))
+                cmd.insert(-1, "-v")
+                cmd.insert(-1, f"{host_abs}:{container_path}")
+
     msg = _run(cmd, dry_run=dry_run)
     return msg or f"Started container {container_name} on port {port}"
 
