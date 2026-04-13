@@ -12,9 +12,6 @@ services:
       - DEPLOY_SERVICE_URL=http://deploy-service:5001
     volumes:
       - ./permissions.db:/app/permissions.db
-      - ./briefer-assets/index_prod.html:/app/index_prod.html:ro
-      - ./briefer-assets/index.html:/app/index.html:ro
-      - ./briefer-assets/assets:/app/assets:ro
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',5051),2); s.close()"]
       interval: 30s
