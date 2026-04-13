@@ -779,7 +779,7 @@ def api_test_deploy():
         return jsonify({"error": "Test timed out"}), 504
 
 
-# ── GitHub Webhook: auto-deploy on push ──
+# ── GitHub Webhook: auto-deploy on push (validated 2026-04-13) ──
 
 import hashlib
 import hmac
