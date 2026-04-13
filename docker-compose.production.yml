@@ -38,6 +38,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./apps:/app/apps
       - ./nginx/apps:/app/nginx/apps
+      - ./nginx/production-apps:/app/nginx/production-apps:ro
       - ./.env:/app/platform.env:ro
     environment:
       - DOCKER_NETWORK=aihub
