@@ -175,21 +175,25 @@ def self_deploy():
         cd /var/www/aihub-admin && docker compose up --build -d deploy-service
 
     Requires:
-    - /platform-repo mounted (docker-compose.production.yml)
+    - /var/www/aihub-admin mounted at same path as host (docker-compose.production.yml)
     - docker compose plugin installed (Dockerfile.deploy)
     - /var/run/docker.sock mounted (already there for /deploy)
     """
-    if not os.path.exists("/platform-repo/.git"):
-        return jsonify({"error": "/platform-repo/.git not found — mount missing"}), 500
+    repo_path = "/var/www/aihub-admin"
+    if not os.path.exists(f"{repo_path}/.git"):
+        return jsonify({"error": f"{repo_path}/.git not found — mount missing"}), 500
 
     log.info("Self-deploy: rebuilding admin-panel from latest main")
     # Project name MUST match the original (`aihub-admin`, from /var/www/aihub-admin
     # which was the cwd for the original `docker compose up`). Without -p, compose
-    # derives the name from the cwd (here /platform-repo → "platform-repo") and
-    # treats existing containers as a different project, hitting a name conflict.
-    # Capture stdout/stderr to a log file so failures aren't silent like before.
+    # derives the name from the cwd and treats existing containers as a different
+    # project, hitting a name conflict.
+    # The repo is mounted at the same path as on the host (/var/www/aihub-admin) so
+    # compose-generated bind mount paths (e.g. /var/www/aihub-admin/permissions.db)
+    # resolve correctly on the host daemon.
+    # Capture stdout/stderr to a log file so failures aren't silent.
     cmd = (
-        "cd /platform-repo && "
+        f"cd {repo_path} && "
         "git fetch origin && "
         "git reset --hard origin/main && "
         "cp docker-compose.production.yml docker-compose.yml && "
