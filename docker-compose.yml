@@ -18,6 +18,8 @@ services:
       - ./hub-navbar.js:/app/hub-navbar.js:ro
       # Persist permissions DB across restarts
       - ./permissions.db:/app/permissions.db
+      # Persist read-only DB users across restarts
+      - ./readonly_db_users.json:/app/readonly_db_users.json
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',5051),2); s.close()"]
       interval: 30s

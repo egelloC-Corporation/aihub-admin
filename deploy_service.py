@@ -197,6 +197,9 @@ def self_deploy():
         "git fetch origin && "
         "git reset --hard origin/main && "
         "cp docker-compose.production.yml docker-compose.yml && "
+        # Ensure host-side state files exist as files before compose bind-mounts them.
+        # `touch` is a no-op if the file already exists, so existing data is safe.
+        "touch permissions.db readonly_db_users.json && "
         "docker compose -p aihub-admin up --build -d --no-deps admin-panel"
     )
     # Log to /tmp inside the deploy-service container — survives the
