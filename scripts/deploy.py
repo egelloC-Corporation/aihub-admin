@@ -273,6 +273,14 @@ def _start_container(app_name, port, streamlit_port=None, dry_run=False):
                 # can resolve the bind-mount source correctly.
                 if HOST_APPS_DIR != APPS_DIR:
                     host_abs = host_abs.replace(APPS_DIR, HOST_APPS_DIR, 1)
+                # Docker creates a *directory* when the bind-mount source doesn't
+                # exist, which breaks file-based tools like sqlite3. Touch the file
+                # so Docker finds an existing regular file to mount.
+                if not os.path.exists(host_abs) and not dry_run:
+                    try:
+                        open(host_abs, "a").close()
+                    except OSError:
+                        pass
                 cmd.insert(-1, "-v")
                 cmd.insert(-1, f"{host_abs}:{container_path}")
 
