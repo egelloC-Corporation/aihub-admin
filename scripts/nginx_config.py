@@ -92,11 +92,14 @@ def _reload_nginx(app_name=None, port=None, action="add", dry_run=False):
     # Method 2: Host system nginx via docker run --pid=host (production).
     # The host docker daemon mounts /run/nginx.pid from the HOST filesystem.
     # --pid=host shares the host PID namespace so kill can reach the nginx master.
+    # --privileged is required: CAP_KILL alone is blocked by the default seccomp
+    # profile when targeting host PIDs from within a container.
     try:
         subprocess.run(
             [
                 "docker", "run", "--rm",
                 "--pid=host",
+                "--privileged",
                 "-v", "/run/nginx.pid:/run/nginx.pid:ro",
                 "alpine",
                 "sh", "-c", "kill -HUP $(cat /run/nginx.pid)",
