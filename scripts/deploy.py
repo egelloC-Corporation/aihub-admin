@@ -201,6 +201,10 @@ def _start_container(app_name, port, streamlit_port=None, dry_run=False):
         "-p", f"{port}:{port}",
     ]
     if streamlit_port:
+        # Publish symmetrically AND tell the app which internal port to bind to
+        # (cohort-analysis/server.py:36 reads STREAMLIT_PORT env → Streamlit binds there).
+        # This lets two Streamlit apps coexist on different host ports without
+        # asymmetric -p mappings.
         cmd += ["-p", f"{streamlit_port}:{streamlit_port}"]
     cmd += [
         "-e", f"PORT={port}",
@@ -208,6 +212,10 @@ def _start_container(app_name, port, streamlit_port=None, dry_run=False):
         "-e", f"AIHUB_AUTH_URL={auth_url}",
         "-e", f"AIHUB_LOGIN_URL=/login?next=/{app_name}/",
         "-e", f"HOST=0.0.0.0",
+    ]
+    if streamlit_port:
+        cmd += ["-e", f"STREAMLIT_PORT={streamlit_port}"]
+    cmd += [
         "--memory", "512m",
         "--cpus", "0.5",
         "--restart", "unless-stopped",
