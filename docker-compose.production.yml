@@ -46,9 +46,12 @@ services:
       # ./permissions.db) resolve to host paths the daemon can find. RW because
       # git operations write to .git/. Same trust level as docker.sock above.
       - /var/www/aihub-admin:/var/www/aihub-admin
+      # Production nginx app config dir — deploy-service writes here, system nginx reads here.
+      # docker.sock lets deploy-service reload nginx via `docker run --pid=host`.
+      - /etc/nginx/aihub-apps:/etc/nginx/aihub-apps
     environment:
       - DOCKER_NETWORK=aihub
-      - NGINX_APPS_DIR=/app/nginx/apps
+      - NGINX_APPS_DIR=/etc/nginx/aihub-apps
       - NGINX_CONTAINER=aihub-nginx
       - APPS_DIR=/app/apps
       - POSTGRES_HOST=postgres

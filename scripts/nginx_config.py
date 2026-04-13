@@ -65,37 +65,50 @@ def _config_path(app_name):
     return os.path.join(os.path.abspath(NGINX_APPS_DIR), f"{app_name}.conf")
 
 
-PROD_NGINX_SCRIPT = os.environ.get("PROD_NGINX_SCRIPT", "/var/www/aihub-admin/scripts/nginx_production.sh")
-
-
 def _reload_nginx(app_name=None, port=None, action="add", dry_run=False):
-    """Reload Nginx to pick up config changes. Also updates production system Nginx if script exists."""
-    # Docker Nginx (for local dev)
-    cmd = ["docker", "exec", NGINX_CONTAINER, "nginx", "-s", "reload"]
+    """Reload Nginx to pick up config changes.
+
+    Tries two methods in order:
+    1. docker exec <NGINX_CONTAINER> nginx -s reload  — local dev (Docker nginx)
+    2. docker run --pid=host alpine kill -HUP <nginx_pid>  — production (system nginx)
+       Requires: docker.sock mounted, /run/nginx.pid readable on host.
+       The docker daemon resolves the -v path from the HOST filesystem, so this
+       works correctly even when called from inside a container.
+    """
     if dry_run:
-        print(f"  [dry-run] Would run: {' '.join(cmd)}")
+        print(f"  [dry-run] Would reload nginx")
         return True
 
-    reloaded = False
+    # Method 1: Docker nginx container (local dev)
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-        reloaded = True
+        subprocess.run(
+            ["docker", "exec", NGINX_CONTAINER, "nginx", "-s", "reload"],
+            check=True, capture_output=True, text=True,
+        )
+        return True
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
 
-    # Production system Nginx (if script exists on host)
-    if app_name and os.path.exists(PROD_NGINX_SCRIPT):
-        try:
-            prod_cmd = [PROD_NGINX_SCRIPT, app_name, str(port or 0), action]
-            subprocess.run(prod_cmd, check=True, capture_output=True, text=True)
-            print(f"  Updated production Nginx for {app_name}")
-            reloaded = True
-        except Exception as e:
-            print(f"  Warning: Production Nginx update failed: {e}", file=sys.stderr)
+    # Method 2: Host system nginx via docker run --pid=host (production).
+    # The host docker daemon mounts /run/nginx.pid from the HOST filesystem.
+    # --pid=host shares the host PID namespace so kill can reach the nginx master.
+    try:
+        subprocess.run(
+            [
+                "docker", "run", "--rm",
+                "--pid=host",
+                "-v", "/run/nginx.pid:/run/nginx.pid:ro",
+                "alpine",
+                "sh", "-c", "kill -HUP $(cat /run/nginx.pid)",
+            ],
+            check=True, capture_output=True, text=True, timeout=30,
+        )
+        return True
+    except Exception as e:
+        print(f"  Warning: host nginx reload failed: {e}", file=sys.stderr)
 
-    if not reloaded:
-        print("  Warning: No Nginx was reloaded", file=sys.stderr)
-    return reloaded
+    print("  Warning: No nginx was reloaded", file=sys.stderr)
+    return False
 
 
 def generate_config(app_name, port):
