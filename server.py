@@ -832,7 +832,15 @@ def github_webhook():
     ).fetchall()
     conn.close()
 
+    # Slugs whose deploy is handled by a repo-specific special case below — skip
+    # in the generic loop to avoid double-deploys that fight the platform itself.
+    # admin = the admin panel (full docker compose rebuild handler below)
+    # hub   = the knowledge base (PM2/Next.js, served on host:3004 via host.docker.internal)
+    SPECIAL_CASE_SLUGS = {"admin", "hub"}
+
     for row in rows:
+        if row["slug"] in SPECIAL_CASE_SLUGS:
+            continue
         # Match by repo URL (normalize trailing .git)
         app_repo = row["repo_url"].rstrip("/").removesuffix(".git")
         push_repo = repo_url.rstrip("/").removesuffix(".git")
