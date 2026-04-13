@@ -27,6 +27,12 @@ import time
 # Resolve paths relative to project root
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 APPS_DIR = os.environ.get("APPS_DIR", os.path.join(PROJECT_ROOT, "apps"))
+# HOST_APPS_DIR is the host-filesystem path that corresponds to APPS_DIR.
+# Docker daemon resolves bind-mount sources from the HOST, not this container.
+# When running inside a container, APPS_DIR (/app/apps) differs from the
+# host path (/var/www/aihub-admin/apps), so volume mounts passed to
+# `docker run -v` must use the host-side path.
+HOST_APPS_DIR = os.environ.get("HOST_APPS_DIR", APPS_DIR)
 DOCKER_NETWORK = os.environ.get("DOCKER_NETWORK", "aihub")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
@@ -249,6 +255,11 @@ def _start_container(app_name, port, streamlit_port=None, dry_run=False):
                     continue
                 host_rel, _, container_path = line.partition(":")
                 host_abs = os.path.abspath(os.path.join(app_dir, host_rel))
+                # Translate container-internal APPS_DIR to the host-side path
+                # so the Docker daemon (which reads paths from the host FS)
+                # can resolve the bind-mount source correctly.
+                if HOST_APPS_DIR != APPS_DIR:
+                    host_abs = host_abs.replace(APPS_DIR, HOST_APPS_DIR, 1)
                 cmd.insert(-1, "-v")
                 cmd.insert(-1, f"{host_abs}:{container_path}")
 

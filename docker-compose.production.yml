@@ -51,6 +51,7 @@ services:
       - NGINX_APPS_DIR=/etc/nginx/aihub-apps
       - NGINX_CONTAINER=aihub-nginx
       - APPS_DIR=/app/apps
+      - HOST_APPS_DIR=/var/www/aihub-admin/apps
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=aihub
