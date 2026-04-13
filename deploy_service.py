@@ -214,6 +214,64 @@ def self_deploy():
     return jsonify({"status": "triggered", "pid": proc.pid, "target": "admin-panel", "log": log_path}), 200
 
 
+@app.route("/kb-deploy", methods=["POST"])
+def kb_deploy():
+    """
+    Pull latest main on the knowledge-base repo and rebuild + restart via pm2.
+
+    Used by server.py's GitHub webhook handler when egelloc-ai-hub is pushed.
+    Runs in a detached subprocess (start_new_session=True) and returns
+    immediately — `npm run build` takes 1–3 minutes.
+
+    Strategy: `docker run --pid=host --privileged alpine` with nsenter into
+    PID 1's mount namespace gives the container full access to the host's
+    node, npm, and pm2 binaries. The alpine image only needs util-linux
+    (for nsenter) which is ~5 s to install and is cached after the first run.
+
+    Requires:
+    - /var/run/docker.sock mounted (already there for /deploy)
+    - egelloc-ai-hub repo at /var/www/egelloc-ai-hub on the host
+    - pm2 running as root with process name 'ai-hub'
+    """
+    kb_path = "/var/www/egelloc-ai-hub"
+    # Guard: the path is on the HOST, not inside this container, so we
+    # can't os.path.exists it. Skip the check and let the build fail if absent.
+
+    log.info("KB deploy: pulling + rebuilding knowledge base")
+    # nsenter -t 1 -m enters PID 1 (systemd)'s mount namespace — the full
+    # host filesystem including /usr/bin/node, /usr/bin/npm, /usr/bin/pm2.
+    inner_cmd = f"cd {kb_path} && git pull && npm run build && pm2 restart ai-hub"
+    cmd = (
+        "docker run --rm --pid=host --privileged alpine "
+        "sh -c 'apk add --no-cache util-linux -q && "
+        f"nsenter -t 1 -m -u -i -n -p -- sh -c \"{inner_cmd}\"'"
+    )
+    log_path = "/tmp/kb-deploy.log"
+    log_fh = open(log_path, "ab")
+    log_fh.write(f"\n=== {__import__('datetime').datetime.utcnow().isoformat()}Z kb-deploy ===\n".encode())
+    log_fh.flush()
+    proc = subprocess.Popen(
+        ["bash", "-c", cmd],
+        stdout=log_fh,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    return jsonify({"status": "triggered", "pid": proc.pid, "target": "knowledge-base", "log": log_path}), 200
+
+
+@app.route("/kb-deploy/log", methods=["GET"])
+def kb_deploy_log():
+    """Return the last N lines of the kb-deploy log for inspection."""
+    log_path = "/tmp/kb-deploy.log"
+    try:
+        with open(log_path) as f:
+            lines = f.readlines()
+        tail = int(request.args.get("lines", 50))
+        return jsonify({"log": "".join(lines[-tail:]), "path": log_path}), 200
+    except FileNotFoundError:
+        return jsonify({"log": "", "note": "No deploy has run yet"}), 200
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("DEPLOY_SERVICE_PORT", 5001))
     app.run(host="0.0.0.0", port=port, debug=False)

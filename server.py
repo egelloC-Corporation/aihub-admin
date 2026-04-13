@@ -861,18 +861,20 @@ def github_webhook():
             except Exception as e:
                 results.append({"app": row["slug"], "status": "error", "detail": str(e)})
 
-    # Special case: knowledge base
-    # KNOWN BROKEN: subprocess.Popen runs INSIDE this admin-panel container,
-    # which has no /var/www/egelloc-ai-hub mount, no node, no npm, no pm2.
-    # The Popen launches but the bash command dies immediately on `cd` failure
-    # (stdout/stderr → DEVNULL so the failure is silent).
-    # Proper fix requires either dockerizing the knowledge base or running a
-    # host-side polling script. Tracked separately. For now, leave the call
-    # so the webhook still returns a triggered status but log a warning.
+    # Special case: knowledge base — route through deploy-service /kb-deploy
+    # which uses docker run --pid=host --privileged + nsenter to reach the
+    # host's node/npm/pm2 and run the build in the background.
     if "egelloc-ai-hub" in repo_name.lower():
-        log.warning("Knowledge-base auto-deploy not implemented — manual SSH pull required")
-        results.append({"app": "knowledge-base", "status": "manual_required",
-                        "detail": "Run: cd /var/www/egelloc-ai-hub && git pull && npm run build && pm2 restart ai-hub"})
+        try:
+            resp = http_requests.post(f"{DEPLOY_SERVICE_URL}/kb-deploy", timeout=5)
+            if resp.ok:
+                results.append({"app": "knowledge-base", "status": "triggered"})
+                log.info("KB deploy triggered via deploy-service")
+            else:
+                results.append({"app": "knowledge-base", "status": "error",
+                                "detail": resp.text[:200]})
+        except Exception as e:
+            results.append({"app": "knowledge-base", "status": "error", "detail": str(e)})
 
     # Special case: admin panel itself — route through deploy-service which has
     # docker.sock mounted + /platform-repo mounted + docker compose plugin.
