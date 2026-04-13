@@ -19,6 +19,10 @@ import sys
 
 # Default paths — overridable via env vars
 NGINX_APPS_DIR = os.environ.get("NGINX_APPS_DIR", os.path.join(os.path.dirname(__file__), "..", "nginx", "apps"))
+NGINX_OVERRIDES_DIR = os.environ.get(
+    "NGINX_OVERRIDES_DIR",
+    os.path.join(os.path.dirname(__file__), "..", "nginx", "production-apps"),
+)
 NGINX_CONTAINER = os.environ.get("NGINX_CONTAINER", "aihub-nginx")
 
 LOCATION_TEMPLATE = """\
@@ -102,12 +106,26 @@ def generate_config(app_name, port):
 
 
 def add_app(app_name, port, dry_run=False):
-    """Add an Nginx route for an app. Returns (success, message)."""
-    config = generate_config(app_name, port)
+    """Add an Nginx route for an app. Returns (success, message).
+
+    If a hand-tuned override exists at NGINX_OVERRIDES_DIR/{slug}.conf
+    (e.g. nginx/production-apps/marketing-dashboard.conf), use it instead
+    of the auto-generated LOCATION_TEMPLATE. Streamlit apps need WS routed
+    directly to Streamlit:8501 and a navbar sub_filter that the auto template
+    doesn't produce — this preserves those overrides across redeploys.
+    """
+    override_path = os.path.join(os.path.abspath(NGINX_OVERRIDES_DIR), f"{app_name}.conf")
+    if os.path.exists(override_path):
+        with open(override_path) as f:
+            config = f.read()
+        source = f"override ({override_path})"
+    else:
+        config = generate_config(app_name, port)
+        source = "auto-generated"
     path = _config_path(app_name)
 
     if dry_run:
-        print(f"  [dry-run] Would write {path}:")
+        print(f"  [dry-run] Would write {path} ({source}):")
         for line in config.splitlines():
             print(f"    {line}")
         print(f"  [dry-run] Would reload Nginx")
@@ -116,7 +134,7 @@ def add_app(app_name, port, dry_run=False):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write(config)
-    print(f"  Wrote {path}")
+    print(f"  Wrote {path} ({source})")
 
     reloaded = _reload_nginx(app_name=app_name, port=port, action="add")
     if reloaded:
