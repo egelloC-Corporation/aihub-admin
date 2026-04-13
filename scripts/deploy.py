@@ -221,9 +221,22 @@ def _start_container(app_name, port, streamlit_port=None, dry_run=False):
     ]
     if streamlit_port:
         cmd += ["-e", f"STREAMLIT_PORT={streamlit_port}"]
+    # Allow app to override resource limits via deploy.cfg (key=value lines)
+    memory_limit = "512m"
+    cpu_limit = "0.5"
+    cfg_path = os.path.join(APPS_DIR, app_name, "deploy.cfg")
+    if os.path.exists(cfg_path):
+        with open(cfg_path) as cf:
+            for line in cf:
+                line = line.strip()
+                if line.startswith("memory="):
+                    memory_limit = line.split("=", 1)[1].strip()
+                elif line.startswith("cpus="):
+                    cpu_limit = line.split("=", 1)[1].strip()
+
     cmd += [
-        "--memory", "512m",
-        "--cpus", "0.5",
+        "--memory", memory_limit,
+        "--cpus", cpu_limit,
         "--restart", "unless-stopped",
         image_name,
     ]
