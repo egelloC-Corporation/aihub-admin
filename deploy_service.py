@@ -183,20 +183,31 @@ def self_deploy():
         return jsonify({"error": "/platform-repo/.git not found — mount missing"}), 500
 
     log.info("Self-deploy: rebuilding admin-panel from latest main")
+    # Project name MUST match the original (`aihub-admin`, from /var/www/aihub-admin
+    # which was the cwd for the original `docker compose up`). Without -p, compose
+    # derives the name from the cwd (here /platform-repo → "platform-repo") and
+    # treats existing containers as a different project, hitting a name conflict.
+    # Capture stdout/stderr to a log file so failures aren't silent like before.
     cmd = (
         "cd /platform-repo && "
         "git fetch origin && "
         "git reset --hard origin/main && "
         "cp docker-compose.production.yml docker-compose.yml && "
-        "docker compose up --build -d --no-deps admin-panel"
+        "docker compose -p aihub-admin up --build -d --no-deps admin-panel"
     )
+    # Log to /tmp inside the deploy-service container — survives the
+    # subprocess being orphaned. Wiped on container restart, which is fine.
+    log_path = "/tmp/self-deploy.log"
+    log_fh = open(log_path, "ab")
+    log_fh.write(f"\n=== {__import__('datetime').datetime.utcnow().isoformat()}Z self-deploy ===\n".encode())
+    log_fh.flush()
     proc = subprocess.Popen(
         ["bash", "-c", cmd],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_fh,
+        stderr=subprocess.STDOUT,
         start_new_session=True,
     )
-    return jsonify({"status": "triggered", "pid": proc.pid, "target": "admin-panel"}), 200
+    return jsonify({"status": "triggered", "pid": proc.pid, "target": "admin-panel", "log": log_path}), 200
 
 
 if __name__ == "__main__":
