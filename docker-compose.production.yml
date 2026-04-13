@@ -40,6 +40,10 @@ services:
       - ./nginx/apps:/app/nginx/apps
       - ./nginx/production-apps:/app/nginx/production-apps:ro
       - ./.env:/app/platform.env:ro
+      # Mount the platform repo so /self-deploy can git pull + docker compose
+      # rebuild admin-panel when the aihub-admin repo is pushed. RW because
+      # git operations write to .git/. Same trust level as docker.sock above.
+      - /var/www/aihub-admin:/platform-repo
     environment:
       - DOCKER_NETWORK=aihub
       - NGINX_APPS_DIR=/app/nginx/apps

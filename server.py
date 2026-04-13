@@ -783,7 +783,6 @@ def api_test_deploy():
 
 import hashlib
 import hmac
-import subprocess as webhook_subprocess
 
 WEBHOOK_SECRET = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
 
@@ -863,26 +862,29 @@ def github_webhook():
                 results.append({"app": row["slug"], "status": "error", "detail": str(e)})
 
     # Special case: knowledge base
+    # KNOWN BROKEN: subprocess.Popen runs INSIDE this admin-panel container,
+    # which has no /var/www/egelloc-ai-hub mount, no node, no npm, no pm2.
+    # The Popen launches but the bash command dies immediately on `cd` failure
+    # (stdout/stderr → DEVNULL so the failure is silent).
+    # Proper fix requires either dockerizing the knowledge base or running a
+    # host-side polling script. Tracked separately. For now, leave the call
+    # so the webhook still returns a triggered status but log a warning.
     if "egelloc-ai-hub" in repo_name.lower():
-        try:
-            webhook_subprocess.Popen(
-                ["bash", "-c", "cd /var/www/egelloc-ai-hub && git fetch origin && git reset --hard origin/main && npm run build && pm2 restart ai-hub"],
-                stdout=webhook_subprocess.DEVNULL, stderr=webhook_subprocess.DEVNULL,
-            )
-            results.append({"app": "knowledge-base", "status": "triggered"})
-            log.info("Auto-deploy triggered for knowledge base")
-        except Exception as e:
-            results.append({"app": "knowledge-base", "status": "error", "detail": str(e)})
+        log.warning("Knowledge-base auto-deploy not implemented — manual SSH pull required")
+        results.append({"app": "knowledge-base", "status": "manual_required",
+                        "detail": "Run: cd /var/www/egelloc-ai-hub && git pull && npm run build && pm2 restart ai-hub"})
 
-    # Special case: admin panel itself
+    # Special case: admin panel itself — route through deploy-service which has
+    # docker.sock mounted + /platform-repo mounted + docker compose plugin.
     if "aihub-admin" in repo_name.lower():
         try:
-            webhook_subprocess.Popen(
-                ["bash", "-c", "cd /var/www/aihub-admin && git fetch origin && git reset --hard origin/main && cp docker-compose.production.yml docker-compose.yml && docker compose up --build -d"],
-                stdout=webhook_subprocess.DEVNULL, stderr=webhook_subprocess.DEVNULL,
-            )
-            results.append({"app": "admin-panel", "status": "triggered"})
-            log.info("Auto-deploy triggered for admin panel")
+            resp = http_requests.post(f"{DEPLOY_SERVICE_URL}/self-deploy", timeout=5)
+            if resp.ok:
+                results.append({"app": "admin-panel", "status": "triggered"})
+                log.info("Self-deploy triggered for admin-panel via deploy-service")
+            else:
+                results.append({"app": "admin-panel", "status": "error",
+                                "detail": f"deploy-service returned {resp.status_code}: {resp.text[:200]}"})
         except Exception as e:
             results.append({"app": "admin-panel", "status": "error", "detail": str(e)})
 

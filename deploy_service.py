@@ -10,6 +10,7 @@ Wraps scripts/deploy.py, scripts/nginx_config.py, and scripts/db_provision.py.
 import os
 import sys
 import logging
+import subprocess
 
 from flask import Flask, request, jsonify
 
@@ -155,6 +156,47 @@ def undeploy():
 
     status_code = 200 if result["status"] in ("removed", "dry_run") else 500
     return jsonify(result), status_code
+
+
+@app.route("/self-deploy", methods=["POST"])
+def self_deploy():
+    """
+    Pull latest main on the platform repo and rebuild admin-panel.
+
+    Used by server.py's GitHub webhook handler when aihub-admin is pushed.
+    Runs in a detached subprocess (start_new_session=True) and returns
+    immediately, because the rebuild can take 30–60s and `docker compose
+    up --build` would otherwise tie up this request.
+
+    Important: rebuilds ONLY admin-panel (--no-deps) — NOT deploy-service or
+    postgres. deploy-service can't safely rebuild itself (it would kill the
+    subprocess running the rebuild). If deploy_service.py / Dockerfile.deploy
+    changes, manual rebuild on the droplet is required:
+        cd /var/www/aihub-admin && docker compose up --build -d deploy-service
+
+    Requires:
+    - /platform-repo mounted (docker-compose.production.yml)
+    - docker compose plugin installed (Dockerfile.deploy)
+    - /var/run/docker.sock mounted (already there for /deploy)
+    """
+    if not os.path.exists("/platform-repo/.git"):
+        return jsonify({"error": "/platform-repo/.git not found — mount missing"}), 500
+
+    log.info("Self-deploy: rebuilding admin-panel from latest main")
+    cmd = (
+        "cd /platform-repo && "
+        "git fetch origin && "
+        "git reset --hard origin/main && "
+        "cp docker-compose.production.yml docker-compose.yml && "
+        "docker compose up --build -d --no-deps admin-panel"
+    )
+    proc = subprocess.Popen(
+        ["bash", "-c", cmd],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return jsonify({"status": "triggered", "pid": proc.pid, "target": "admin-panel"}), 200
 
 
 if __name__ == "__main__":
