@@ -173,8 +173,14 @@ def _build_image(app_name, port=3000, dry_run=False):
     return msg or f"Built image {image_name}"
 
 
-def _start_container(app_name, port, dry_run=False):
-    """Start the app container on the aihub network."""
+def _start_container(app_name, port, streamlit_port=None, dry_run=False):
+    """Start the app container on the aihub network.
+
+    streamlit_port: optional second host port to publish (e.g. 8501 for Streamlit
+    apps whose WebSocket runs on a separate internal port from Flask). Published
+    symmetrically as -p {streamlit_port}:{streamlit_port}, so the container's
+    Streamlit process must bind to that same port internally.
+    """
     container_name = f"aihub-{app_name}"
     image_name = f"aihub-{app_name}"
 
@@ -193,6 +199,10 @@ def _start_container(app_name, port, dry_run=False):
         "--name", container_name,
         "--network", DOCKER_NETWORK,
         "-p", f"{port}:{port}",
+    ]
+    if streamlit_port:
+        cmd += ["-p", f"{streamlit_port}:{streamlit_port}"]
+    cmd += [
         "-e", f"PORT={port}",
         "-e", f"APP_SLUG={app_name}",
         "-e", f"AIHUB_AUTH_URL={auth_url}",
@@ -441,11 +451,13 @@ def test_app(app_name, port, repo_url=None, local_path=None):
     }
 
 
-def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None, dry_run=False):
+def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None, streamlit_port=None, dry_run=False):
     """
     Full deploy pipeline. Returns a result dict.
 
     Steps: clone → build → DB provision → start → nginx → health check
+
+    streamlit_port: optional second host port for Streamlit apps (see _start_container).
     """
     steps = []
     try:
@@ -466,7 +478,7 @@ def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None,
             steps.append(f"DB user: {db_result.get('db_user', 'n/a')}")
 
         # 4. Start container
-        msg = _start_container(app_name, port, dry_run=dry_run)
+        msg = _start_container(app_name, port, streamlit_port=streamlit_port, dry_run=dry_run)
         steps.append(msg)
 
         # 5. Add Nginx route
@@ -565,6 +577,7 @@ def main():
     dep = sub.add_parser("deploy", help="Deploy an app")
     dep.add_argument("--app-name", required=True, help="App slug")
     dep.add_argument("--port", type=int, required=True, help="Port the app listens on")
+    dep.add_argument("--streamlit-port", type=int, default=None, help="Optional second port for Streamlit WebSocket")
     src = dep.add_mutually_exclusive_group(required=True)
     src.add_argument("--repo-url", help="Git repository URL to clone")
     src.add_argument("--local-path", help="Local directory path to copy")
@@ -582,6 +595,7 @@ def main():
             port=args.port,
             repo_url=getattr(args, "repo_url", None),
             local_path=getattr(args, "local_path", None),
+            streamlit_port=getattr(args, "streamlit_port", None),
             dry_run=args.dry_run,
         )
     elif args.command == "undeploy":
