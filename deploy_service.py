@@ -42,6 +42,7 @@ def deploy():
 
     app_name = body.get("app_name") or body.get("slug")
     port = body.get("port")
+    streamlit_port = body.get("streamlit_port")
     repo_url = body.get("repo_url")
     local_path = body.get("local_path")
     repo_subdir = body.get("repo_subdir")
@@ -52,7 +53,7 @@ def deploy():
     if not port:
         return jsonify({"error": "port is required"}), 400
 
-    log.info("Deploy request: app=%s port=%s dry_run=%s", app_name, port, dry_run)
+    log.info("Deploy request: app=%s port=%s streamlit_port=%s dry_run=%s", app_name, port, streamlit_port, dry_run)
 
     result = deploy_app(
         app_name=app_name,
@@ -60,6 +61,7 @@ def deploy():
         repo_url=repo_url,
         local_path=local_path,
         repo_subdir=repo_subdir,
+        streamlit_port=int(streamlit_port) if streamlit_port else None,
         dry_run=dry_run,
     )
 

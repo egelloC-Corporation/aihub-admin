@@ -446,6 +446,7 @@ def api_submit_app():
     description = (body.get("description") or "").strip()
     icon = (body.get("icon") or "").strip()
     port = body.get("port")
+    streamlit_port = body.get("streamlit_port")
     repo_url = (body.get("repo_url") or "").strip()
     env_keys = (body.get("env_keys") or "").strip()
 
@@ -476,6 +477,20 @@ def api_submit_app():
     except (ValueError, TypeError):
         return jsonify({"error": "Port must be a number between 1024 and 65535"}), 400
 
+    # Optional streamlit_port: second host port for Streamlit apps' WebSocket.
+    # Must be distinct from `port` and in the same range. None/empty = not a Streamlit app.
+    if streamlit_port not in (None, "", 0, "0"):
+        try:
+            streamlit_port = int(streamlit_port)
+            if not (1024 <= streamlit_port <= 65535):
+                raise ValueError
+            if streamlit_port == port:
+                return jsonify({"error": "streamlit_port must differ from port"}), 400
+        except (ValueError, TypeError):
+            return jsonify({"error": "streamlit_port must be a number between 1024 and 65535"}), 400
+    else:
+        streamlit_port = None
+
     # Run pre-submission validation via deploy service
     validation = None
     try:
@@ -497,7 +512,7 @@ def api_submit_app():
         pass
 
     submitted_by = session["user"]["email"]
-    result = submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_keys, submitted_by)
+    result = submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_keys, submitted_by, streamlit_port=streamlit_port)
     if "error" in result:
         return jsonify(result), 409
     if validation:
@@ -545,12 +560,13 @@ def api_approve_app():
     try:
         from permissions import get_db
         conn = get_db()
-        row = conn.execute("SELECT slug, port, repo_url, repo_subdir FROM app_submissions WHERE id = ?", (submission_id,)).fetchone()
+        row = conn.execute("SELECT slug, port, streamlit_port, repo_url, repo_subdir FROM app_submissions WHERE id = ?", (submission_id,)).fetchone()
         conn.close()
         if row and row["repo_url"]:
             deploy_payload = {
                 "app_name": row["slug"],
                 "port": row["port"],
+                "streamlit_port": row["streamlit_port"],
                 "repo_url": row["repo_url"],
                 "repo_subdir": row["repo_subdir"] or None,
             }
@@ -578,6 +594,7 @@ def api_edit_app():
         description=body.get("description"),
         icon=body.get("icon"),
         port=body.get("port"),
+        streamlit_port=body.get("streamlit_port"),
         repo_url=body.get("repo_url"),
         env_keys=body.get("env_keys"),
     )
@@ -666,6 +683,7 @@ def api_deploy_app():
     body = request.get_json()
     app_name = (body.get("app_name") or body.get("slug") or "").strip()
     port = body.get("port")
+    streamlit_port = body.get("streamlit_port")
     repo_url = body.get("repo_url")
     local_path = body.get("local_path")
     repo_subdir = body.get("repo_subdir")
@@ -674,12 +692,25 @@ def api_deploy_app():
     if not app_name or not port:
         return jsonify({"error": "app_name and port are required"}), 400
 
+    # If streamlit_port isn't provided by caller, look it up from the submission row
+    if streamlit_port in (None, "", 0, "0"):
+        try:
+            from permissions import get_db
+            conn = get_db()
+            row = conn.execute("SELECT streamlit_port FROM app_submissions WHERE slug = ?", (app_name,)).fetchone()
+            conn.close()
+            if row and row["streamlit_port"]:
+                streamlit_port = row["streamlit_port"]
+        except Exception:
+            pass
+
     try:
         resp = http_requests.post(
             f"{DEPLOY_SERVICE_URL}/deploy",
             json={
                 "app_name": app_name,
                 "port": port,
+                "streamlit_port": streamlit_port,
                 "repo_url": repo_url,
                 "local_path": local_path,
                 "repo_subdir": repo_subdir,
@@ -797,7 +828,7 @@ def github_webhook():
     from permissions import get_db
     conn = get_db()
     rows = conn.execute(
-        "SELECT slug, port, repo_url, repo_subdir FROM app_submissions WHERE status = 'live' AND repo_url != ''"
+        "SELECT slug, port, streamlit_port, repo_url, repo_subdir FROM app_submissions WHERE status = 'live' AND repo_url != ''"
     ).fetchall()
     conn.close()
 
@@ -812,6 +843,7 @@ def github_webhook():
                     json={
                         "app_name": row["slug"],
                         "port": row["port"],
+                        "streamlit_port": row["streamlit_port"],
                         "repo_url": row["repo_url"],
                         "repo_subdir": row["repo_subdir"] or None,
                     },

@@ -61,6 +61,7 @@ def init_db():
             description TEXT DEFAULT '',
             icon TEXT DEFAULT '',
             port INTEGER NOT NULL,
+            streamlit_port INTEGER,
             repo_url TEXT DEFAULT '',
             repo_subdir TEXT DEFAULT '',
             env_keys TEXT DEFAULT '',
@@ -73,7 +74,7 @@ def init_db():
     """)
 
     # Migrate: add columns if missing
-    for col in ["icon TEXT DEFAULT ''", "repo_subdir TEXT DEFAULT ''"]:
+    for col in ["icon TEXT DEFAULT ''", "repo_subdir TEXT DEFAULT ''", "streamlit_port INTEGER"]:
         try:
             conn.execute(f"ALTER TABLE app_submissions ADD COLUMN {col}")
         except sqlite3.OperationalError:
@@ -214,9 +215,14 @@ def get_custom_users():
 
 # ── App Submissions ──
 
-def submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_keys, submitted_by):
+def submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_keys, submitted_by, streamlit_port=None):
     """Submit a new app or update an existing one for review.
     If the slug already exists and is live/approved/error, resets it to pending (update flow).
+
+    streamlit_port: optional second host port to publish from the container.
+    Used by Streamlit apps that run Flask on `port` and Streamlit on a separate
+    port for WebSocket traffic. If set, deploy.py will publish it as
+    -p {streamlit_port}:{streamlit_port}.
     """
     conn = get_db()
     existing = conn.execute(
@@ -228,12 +234,12 @@ def submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_k
             # Update flow — reset to pending with new details
             conn.execute(
                 """UPDATE app_submissions
-                   SET name = ?, description = ?, icon = ?, port = ?, repo_url = ?, repo_subdir = ?, env_keys = ?,
+                   SET name = ?, description = ?, icon = ?, port = ?, streamlit_port = ?, repo_url = ?, repo_subdir = ?, env_keys = ?,
                        submitted_by = ?, status = 'pending',
                        reviewed_by = NULL, reviewed_at = NULL,
                        submitted_at = datetime('now')
                    WHERE slug = ?""",
-                (name, description, icon, port, repo_url, repo_subdir or "", env_keys, submitted_by, slug),
+                (name, description, icon, port, streamlit_port, repo_url, repo_subdir or "", env_keys, submitted_by, slug),
             )
             conn.commit()
             conn.close()
@@ -245,12 +251,12 @@ def submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_k
             # Allow resubmission after rejection
             conn.execute(
                 """UPDATE app_submissions
-                   SET name = ?, description = ?, icon = ?, port = ?, repo_url = ?, repo_subdir = ?, env_keys = ?,
+                   SET name = ?, description = ?, icon = ?, port = ?, streamlit_port = ?, repo_url = ?, repo_subdir = ?, env_keys = ?,
                        submitted_by = ?, status = 'pending',
                        reviewed_by = NULL, reviewed_at = NULL,
                        submitted_at = datetime('now')
                    WHERE slug = ?""",
-                (name, description, icon, port, repo_url, repo_subdir or "", env_keys, submitted_by, slug),
+                (name, description, icon, port, streamlit_port, repo_url, repo_subdir or "", env_keys, submitted_by, slug),
             )
             conn.commit()
             conn.close()
@@ -258,9 +264,9 @@ def submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_k
 
     try:
         conn.execute(
-            """INSERT INTO app_submissions (slug, name, description, icon, port, repo_url, repo_subdir, env_keys, submitted_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (slug, name, description, icon, port, repo_url, repo_subdir or "", env_keys, submitted_by),
+            """INSERT INTO app_submissions (slug, name, description, icon, port, streamlit_port, repo_url, repo_subdir, env_keys, submitted_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (slug, name, description, icon, port, streamlit_port, repo_url, repo_subdir or "", env_keys, submitted_by),
         )
         conn.commit()
     except sqlite3.IntegrityError:
@@ -387,7 +393,7 @@ def delete_submission(submission_id):
     return {"status": "deleted", "slug": slug, "was_live": row["status"] == "live"}
 
 
-def edit_submission(submission_id, slug=None, name=None, description=None, icon=None, port=None, repo_url=None, env_keys=None):
+def edit_submission(submission_id, slug=None, name=None, description=None, icon=None, port=None, streamlit_port=None, repo_url=None, env_keys=None):
     """Edit fields on an existing submission. Supports slug changes."""
     conn = get_db()
     row = conn.execute("SELECT * FROM app_submissions WHERE id = ?", (submission_id,)).fetchone()
@@ -420,6 +426,9 @@ def edit_submission(submission_id, slug=None, name=None, description=None, icon=
         updates["icon"] = icon
     if port is not None:
         updates["port"] = port
+    if streamlit_port is not None:
+        # Treat empty string or 0 as "clear" → NULL
+        updates["streamlit_port"] = streamlit_port if streamlit_port else None
     if repo_url is not None:
         updates["repo_url"] = repo_url
     if env_keys is not None:

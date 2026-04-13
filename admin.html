@@ -867,6 +867,15 @@ Note: If you're updating an existing app, just resubmit with the same slug — i
           <input type="number" id="appPort" placeholder="3000" min="1024" max="65535">
         </div>
         <div class="form-group">
+          <label>Streamlit WebSocket Port <span style="color:var(--text-muted);font-weight:400;">(optional)</span>
+            <span class="tooltip-wrap">
+              <span class="tooltip-icon">?</span>
+              <span class="tooltip-bubble">For Streamlit apps only. The port where Streamlit serves its WebSocket (usually <code>8501</code>). Leave blank for non-Streamlit apps. The container must bind this port, and the Nginx route must proxy <code>/_stcore/stream</code> to this host port.</span>
+            </span>
+          </label>
+          <input type="number" id="appStreamlitPort" placeholder="8501 (Streamlit only)" min="1024" max="65535">
+        </div>
+        <div class="form-group">
           <label>Git Repository URL</label>
           <input type="text" id="appRepoUrl" placeholder="https://github.com/org/my-app.git">
           <div class="hint">HTTPS clone URL for deployment. Required — the deploy system clones this repo.</div>
@@ -1893,6 +1902,7 @@ async function submitApp() {
   var name = document.getElementById("appName").value.trim();
   var desc = document.getElementById("appDesc").value.trim();
   var port = document.getElementById("appPort").value.trim();
+  var streamlitPort = document.getElementById("appStreamlitPort").value.trim();
   var icon = document.getElementById("appIcon").value.trim();
   var repoUrl = document.getElementById("appRepoUrl").value.trim();
   var envKeys = document.getElementById("appEnvKeys").value.trim();
@@ -1919,6 +1929,20 @@ async function submitApp() {
     errEl.style.display = "block";
     return;
   }
+  var streamlitPortNum = null;
+  if (streamlitPort) {
+    streamlitPortNum = parseInt(streamlitPort);
+    if (isNaN(streamlitPortNum) || streamlitPortNum < 1024 || streamlitPortNum > 65535) {
+      errEl.textContent = "Streamlit WebSocket Port must be between 1024 and 65535.";
+      errEl.style.display = "block";
+      return;
+    }
+    if (streamlitPortNum === portNum) {
+      errEl.textContent = "Streamlit WebSocket Port must differ from Local Port.";
+      errEl.style.display = "block";
+      return;
+    }
+  }
 
   btn.disabled = true;
   btn.textContent = "Validating...";
@@ -1927,7 +1951,7 @@ async function submitApp() {
     var resp = await fetch("/admin/api/apps/submit", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ slug: slug, name: name, description: desc, icon: icon, port: portNum, repo_url: repoUrl, env_keys: envKeys }),
+      body: JSON.stringify({ slug: slug, name: name, description: desc, icon: icon, port: portNum, streamlit_port: streamlitPortNum, repo_url: repoUrl, env_keys: envKeys }),
     });
     var data = await resp.json();
 
@@ -1958,6 +1982,7 @@ async function submitApp() {
       var popup = document.getElementById("appIconPopup");
       if (popup) popup.classList.remove("open");
       document.getElementById("appPort").value = "";
+      document.getElementById("appStreamlitPort").value = "";
       document.getElementById("appRepoUrl").value = "";
       document.getElementById("appEnvKeys").value = "";
       loadSubmissions();
@@ -2041,7 +2066,7 @@ async function loadSubmissions() {
         (s.description ? '<div class="queue-item-desc">' + escHtml(s.description) + '</div>' : '') +
         '<div class="queue-item-meta">' +
           (s.repo_url ? '<div>Repo: <code>' + escHtml(s.repo_url) + '</code></div>' : '') +
-          '<div>Port: <code>' + escHtml(s.port) + '</code></div>' +
+          '<div>Port: <code>' + escHtml(s.port) + '</code>' + (s.streamlit_port ? ' &middot; Streamlit WS: <code>' + escHtml(s.streamlit_port) + '</code>' : '') + '</div>' +
           '<div>By: ' + escHtml(s.submitted_by) + (s.reviewed_by ? ' &middot; Reviewed by: ' + escHtml(s.reviewed_by) : '') + '</div>' +
         '</div>' +
         actions +
@@ -2078,6 +2103,7 @@ function editApp(id) {
       '<div class="form-group"><label>App Slug <span style="font-weight:normal;color:var(--text-dim);">(changes the URL)</span></label><input type="text" id="editSlug" value="' + (s.slug || '') + '" pattern="[a-z][a-z0-9-]+" maxlength="31" style="font-family:monospace;"></div>' +
       '<div class="form-group"><label>Description</label><textarea id="editDesc">' + (s.description || '') + '</textarea></div>' +
       '<div class="form-group"><label>Port</label><input type="number" id="editPort" value="' + s.port + '" min="1024" max="65535"></div>' +
+      '<div class="form-group"><label>Streamlit WebSocket Port <span style="font-weight:normal;color:var(--text-dim);">(optional, e.g. 8501)</span></label><input type="number" id="editStreamlitPort" value="' + (s.streamlit_port || '') + '" placeholder="blank for non-Streamlit apps" min="1024" max="65535"></div>' +
       '<div class="form-group"><label>Git Repository URL</label><input type="text" id="editRepo" value="' + (s.repo_url || '').replace(/"/g, '&quot;') + '"></div>' +
       '<div class="edit-modal-actions">' +
         '<button class="edit-cancel" onclick="this.closest(\'.edit-overlay\').remove()">Cancel</button>' +
@@ -2103,6 +2129,7 @@ function editApp(id) {
           description: document.getElementById('editDesc').value.trim(),
           icon: document.getElementById('editIcon').value.trim(),
           port: parseInt(document.getElementById('editPort').value) || s.port,
+          streamlit_port: (function(){ var v = document.getElementById('editStreamlitPort').value.trim(); return v === '' ? 0 : parseInt(v); })(),
           repo_url: document.getElementById('editRepo').value.trim(),
         }),
       });
