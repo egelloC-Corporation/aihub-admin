@@ -195,6 +195,10 @@ def self_deploy():
     cmd = (
         f"cd {repo_path} && "
         "git fetch origin && "
+        # Use fetch + reset to update tracked files, but preserve untracked
+        # directories like apps/briefer/ (a separately cloned repo) and state
+        # files (permissions.db, etc.). git reset --hard only touches tracked
+        # files; git clean would nuke untracked dirs, so we skip it.
         "git reset --hard origin/main && "
         "cp docker-compose.production.yml docker-compose.yml && "
         # Ensure host-side state files exist as files before compose bind-mounts them.
