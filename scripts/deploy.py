@@ -76,8 +76,24 @@ def _run(cmd, dry_run=False, check=True):
 
 def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, dry_run=False):
     """Clone a repo or copy a local directory into apps/<app_name>/.
-    If repo_subdir is set, only that subdirectory is used as the app root."""
+    If repo_subdir is set, only that subdirectory is used as the app root.
+
+    Preserves the app's .env across redeploys — it holds secrets (DB
+    credentials, API keys) that aren't in source control and can't be
+    regenerated. Without this, every push-to-main deploy would silently
+    delete the credentials and break the app on next start.
+    """
     dest = os.path.join(APPS_DIR, app_name)
+
+    # Snapshot .env (and any other persist-list file) before wipe
+    preserved = {}
+    persist_files = [".env"]
+    if not dry_run and os.path.exists(dest):
+        for fname in persist_files:
+            fpath = os.path.join(dest, fname)
+            if os.path.isfile(fpath):
+                with open(fpath, "rb") as f:
+                    preserved[fname] = f.read()
 
     if os.path.exists(dest) and not dry_run:
         shutil.rmtree(dest)
@@ -97,18 +113,50 @@ def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, d
                     raise RuntimeError(f"Subdirectory '{repo_subdir}' not found in repo")
                 shutil.copytree(subdir_path, dest, dirs_exist_ok=True)
                 shutil.rmtree(tmp_dest)
-            return msg or f"Cloned {_safe_url(repo_url)} (subdir: {repo_subdir}) → {dest}"
+            result_msg = msg or f"Cloned {_safe_url(repo_url)} (subdir: {repo_subdir}) → {dest}"
         else:
             msg = _run(["git", "clone", "--depth", "1", auth_url, dest], dry_run=dry_run)
-            return msg or f"Cloned {_safe_url(repo_url)} → {dest}"
+            result_msg = msg or f"Cloned {_safe_url(repo_url)} → {dest}"
     elif local_path:
         abs_path = os.path.abspath(local_path)
         if dry_run:
             return f"Would copy {abs_path} → {dest}"
         shutil.copytree(abs_path, dest, dirs_exist_ok=True)
-        return f"Copied {abs_path} → {dest}"
+        result_msg = f"Copied {abs_path} → {dest}"
     else:
         raise ValueError("Either repo_url or local_path is required")
+
+    # Restore preserved files. The deploy continues to call create_app_user()
+    # right after this, which appends fresh DB credentials to .env. To avoid
+    # duplicate DATABASE_URL=... lines on every redeploy, we only restore the
+    # .env if create_app_user is NOT going to overwrite it. Detection: if the
+    # preserved .env already has a DATABASE_URL line, db_provision will append
+    # a duplicate. So we strip prior auto-provisioned blocks before restoring,
+    # leaving manually-set credentials (like external DB URLs) intact.
+    if not dry_run and preserved:
+        for fname, content in preserved.items():
+            if fname == ".env":
+                # Drop any auto-provisioned block (delimited by the comment
+                # written by db_provision.py) so the next run reapplies fresh
+                # credentials. Lines outside that block (manual DB_HOST etc.)
+                # survive.
+                lines = content.decode("utf-8", errors="replace").splitlines(keepends=True)
+                marker = "# AI Hub shared database — auto-provisioned\n"
+                if marker in lines:
+                    idx = lines.index(marker)
+                    lines = lines[:idx]
+                content = "".join(lines).encode("utf-8")
+                if not content.strip():
+                    continue
+            fpath = os.path.join(dest, fname)
+            with open(fpath, "wb") as f:
+                f.write(content)
+            try:
+                os.chmod(fpath, 0o600)
+            except OSError:
+                pass
+
+    return result_msg
 
 
 DOCKERFILE_NODE = """\
