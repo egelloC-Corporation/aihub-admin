@@ -13,6 +13,8 @@ import sys
 import logging
 import time
 import functools
+import threading
+import queue
 
 from flask import Flask, request, jsonify, send_from_directory, Response, redirect, session, url_for
 from flask_cors import CORS
@@ -58,6 +60,92 @@ APP_PREFIX = os.environ.get("APP_PREFIX", "")  # set to "/briefer" in production
 # Deploy service URL — separate infra service on port 5001
 # In Docker Compose: http://deploy-service:5001 | Native: http://localhost:5001
 DEPLOY_SERVICE_URL = os.environ.get("DEPLOY_SERVICE_URL", "http://localhost:5001")
+
+# ── Audit log — background writer ──
+# Writes to incubator_logs in a background thread so requests aren't blocked
+# by a DB round-trip. Uses a single persistent connection with auto-reconnect.
+
+_audit_queue = queue.Queue(maxsize=1000)
+
+
+def _audit_worker():
+    """Background thread that drains the audit queue and writes to PostgreSQL."""
+    import psycopg2
+    conn = None
+    while True:
+        entry = _audit_queue.get()
+        try:
+            if conn is None or conn.closed:
+                conn = psycopg2.connect(
+                    host=os.environ.get("ACQ_DB_HOST", ""),
+                    port=int(os.environ.get("ACQ_DB_PORT", "25060")),
+                    dbname=os.environ.get("ACQ_DB_NAME", "defaultdb"),
+                    user=os.environ.get("INCUBATOR_LOG_DB_USER", ""),
+                    password=os.environ.get("INCUBATOR_LOG_DB_PASSWORD", ""),
+                    sslmode="require",
+                )
+                conn.autocommit = True
+            cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO incubator_logs
+                   (event_type, user_email, user_name, app_slug, action,
+                    detail, metadata, ip_address, user_agent)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (entry["event_type"], entry.get("user_email"), entry.get("user_name"),
+                 entry.get("app_slug"), entry["action"], entry.get("detail"),
+                 json.dumps(entry.get("metadata") or {}),
+                 entry.get("ip_address"), entry.get("user_agent")),
+            )
+            cur.close()
+        except Exception as e:
+            log.warning("Audit log write failed: %s", e)
+            try:
+                conn.close()
+            except Exception:
+                pass
+            conn = None
+
+
+_audit_thread = threading.Thread(target=_audit_worker, daemon=True)
+_audit_thread.start()
+
+
+def log_event(event_type, action, **kwargs):
+    """Queue an audit log entry (non-blocking)."""
+    try:
+        _audit_queue.put_nowait({"event_type": event_type, "action": action, **kwargs})
+    except queue.Full:
+        pass  # Drop rather than block the request
+
+
+@app.after_request
+def audit_log_request(response):
+    """Log every authenticated request to the incubator_logs table."""
+    skip = ("/static", "/health", "/hub-navbar.js", "/favicon", "/auth/me")
+    if any(request.path.startswith(p) for p in skip):
+        return response
+
+    user = session.get("user")
+    if not user:
+        return response
+
+    # Extract app slug from /{slug}/ routes
+    parts = [p for p in request.path.strip("/").split("/") if p]
+    known_slugs = {"briefer", "knowledge", "admin", "sales-kpi",
+                   "marketing-dashboard", "acquisition-logs", "launcher"}
+    app_slug = parts[0] if parts and parts[0] in known_slugs else None
+
+    log_event(
+        "app_access",
+        f"{request.method} {request.path}",
+        user_email=user.get("email"),
+        user_name=user.get("name"),
+        app_slug=app_slug,
+        ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
+        user_agent=request.headers.get("User-Agent"),
+    )
+    return response
+
 
 # ── Google OAuth SSO ──
 ALLOWED_DOMAIN = "egelloc.com"
@@ -147,6 +235,10 @@ def auth_callback():
         "picture": user_info.get("picture", ""),
     }
     session.pop("next_url", None)
+
+    log_event("auth", "login", user_email=email,
+              user_name=user_info.get("name"),
+              ip_address=request.headers.get("X-Forwarded-For", request.remote_addr))
 
     return redirect(next_url)
 
