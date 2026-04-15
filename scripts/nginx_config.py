@@ -116,8 +116,12 @@ def _reload_nginx(app_name=None, port=None, action="add", dry_run=False):
 
 def generate_config(app_name, port):
     """Generate the Nginx location block for an app. Returns the config string."""
-    # Inside Docker network, the container name is the upstream host
-    upstream = f"aihub-{app_name}"
+    # NGINX_UPSTREAM_HOST controls how the generated config reaches app containers:
+    #   - Local dev (Docker nginx): use container name "aihub-{app_name}" (default)
+    #   - Production (system nginx on host): set to "127.0.0.1" since containers
+    #     publish ports to the host via -p
+    upstream_host = os.environ.get("NGINX_UPSTREAM_HOST", "")
+    upstream = upstream_host if upstream_host else f"aihub-{app_name}"
     return LOCATION_TEMPLATE.format(app_name=app_name, upstream=upstream, port=port)
 
 

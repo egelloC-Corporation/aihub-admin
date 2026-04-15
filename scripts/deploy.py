@@ -179,6 +179,32 @@ def _build_image(app_name, port=3000, dry_run=False):
     return msg or f"Built image {image_name}"
 
 
+def _kill_port_holder(port, exclude_name=None, dry_run=False):
+    """Find and remove any container bound to a host port.
+
+    Prevents 'address already in use' errors from orphaned containers left by
+    previous failed deploys.  Skips the container named *exclude_name* (if
+    given) since the caller will remove it separately.
+    """
+    if dry_run:
+        return
+    # docker ps lists published ports like "0.0.0.0:3001->3001/tcp"
+    result = subprocess.run(
+        ["docker", "ps", "-a", "--format", "{{.ID}} {{.Names}} {{.Ports}}"],
+        capture_output=True, text=True,
+    )
+    for line in result.stdout.strip().splitlines():
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        cid, cname, ports = parts
+        if exclude_name and cname == exclude_name:
+            continue
+        # Match "0.0.0.0:<port>->" anywhere in the ports string
+        if f":{port}->" in ports:
+            subprocess.run(["docker", "rm", "-f", cid], capture_output=True, text=True)
+
+
 def _start_container(app_name, port, streamlit_port=None, dry_run=False):
     """Start the app container on the aihub network.
 
@@ -196,6 +222,10 @@ def _start_container(app_name, port, streamlit_port=None, dry_run=False):
             ["docker", "rm", "-f", container_name],
             capture_output=True, text=True,
         )
+        # Kill any orphaned container holding the target port(s)
+        _kill_port_holder(port)
+        if streamlit_port:
+            _kill_port_holder(streamlit_port)
 
     # Auth URL so deployed apps can verify sessions against the admin panel
     auth_url = os.environ.get("AIHUB_AUTH_URL", "http://admin-panel:5051/auth/me")
@@ -568,6 +598,14 @@ def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None,
         # Determine which step failed based on steps completed
         step_names = ["clone", "build", "db_provision", "start", "nginx", "health_check"]
         failed_step = step_names[len(steps)] if len(steps) < len(step_names) else "unknown"
+
+        # Clean up partially-started container so it doesn't hold the port
+        if not dry_run:
+            container_name = f"aihub-{app_name}"
+            subprocess.run(
+                ["docker", "rm", "-f", container_name],
+                capture_output=True, text=True,
+            )
 
         return {
             "status": "failed",
