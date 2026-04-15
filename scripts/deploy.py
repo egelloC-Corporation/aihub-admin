@@ -364,7 +364,13 @@ def validate_submission(app_name, port, repo_url=None):
         checks.append({"check": "Port range", "status": "fail",
                         "detail": f"Port {port} must be between 1025-65535"})
 
-    # 3. Port conflict with another app (not counting self — allows updates)
+    # 3. Port conflict — checks both Docker containers AND host processes.
+    # Host-level check is required because native apps (Ruby/Puma for Mission
+    # Control on 3000, PM2-managed Node services, etc.) bind ports outside
+    # Docker and docker ps can't see them.
+    self_container = f"aihub-{app_name}"
+    port_conflict = None
+    port_conflict_detail = None
     try:
         result = subprocess.run(
             ["docker", "ps", "--format", "{{.Names}}\t{{.Ports}}"],
@@ -372,16 +378,50 @@ def validate_submission(app_name, port, repo_url=None):
         )
         port_str = f":{port}->"
         for line in result.stdout.strip().splitlines():
-            if port_str in line and f"aihub-{app_name}" not in line:
-                container = line.split("\t")[0]
-                checks.append({"check": "Port not in use", "status": "fail",
-                                "detail": f"Port {port} already used by '{container}'"})
+            if port_str in line and self_container not in line:
+                port_conflict = line.split("\t")[0]
+                port_conflict_detail = f"Port {port} already used by container '{port_conflict}'"
                 break
-        else:
-            checks.append({"check": "Port not in use", "status": "pass"})
     except Exception:
-        # Docker not available — skip this check at submission time
-        pass
+        pass  # Docker not available
+
+    # Host-network TCP probe. If the app is being redeployed under the same
+    # port, the existing `aihub-{app_name}` container will answer the probe —
+    # that's a false positive we silently swallow (detected via docker ps above).
+    if not port_conflict:
+        self_holds_port = False
+        try:
+            ps = subprocess.run(
+                ["docker", "ps", "--filter", f"name={self_container}",
+                 "--format", "{{.Ports}}"],
+                capture_output=True, text=True,
+            )
+            if f":{port}->" in ps.stdout:
+                self_holds_port = True
+        except Exception:
+            pass
+
+        if not self_holds_port:
+            try:
+                probe = subprocess.run(
+                    ["docker", "run", "--rm", "--network=host", "alpine",
+                     "sh", "-c", f"nc -z 127.0.0.1 {port} 2>/dev/null && echo IN_USE || echo FREE"],
+                    capture_output=True, text=True, timeout=15,
+                )
+                if "IN_USE" in probe.stdout:
+                    port_conflict = "host-process"
+                    port_conflict_detail = (
+                        f"Port {port} is already in use on the host (likely a non-Docker "
+                        f"process like PM2 or Ruby/Puma). Pick a different port."
+                    )
+            except Exception:
+                pass  # Probe unavailable — don't block submission
+
+    if port_conflict:
+        checks.append({"check": "Port not in use", "status": "fail",
+                        "detail": port_conflict_detail})
+    else:
+        checks.append({"check": "Port not in use", "status": "pass"})
 
     # 4. Repo accessible (the big one — catches private repo issues immediately)
     if repo_url:

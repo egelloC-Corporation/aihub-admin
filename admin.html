@@ -781,13 +781,23 @@ Then:
    CMD ["node", "server.js"]
    Make sure the CMD matches my actual entry point file and the Dockerfile installs all dependencies
 5. Make sure my app listens on the PORT environment variable (not a hardcoded port) and binds to 0.0.0.0
-6. Create or update my .env.example with these keys:
+6. CRITICAL — handle the path prefix. Apps are served at aihub.egelloc.com/APP_SLUG/, NOT at the root. Every asset, API call, and internal link must use the APP_SLUG prefix or my app will render with broken styling and broken data fetches. Concretely:
+   - Flask / Jinja templates: use RELATIVE paths — href="static/css/style.css" and src="static/js/app.js" (NO leading slash). The browser resolves these from the current /APP_SLUG/ URL.
+   - Flask JS fetch() calls: same thing — fetch("api/stats") not fetch("/api/stats").
+   - Next.js: add basePath: "/APP_SLUG" to next.config.ts — this makes Next generate correct asset and link URLs automatically. Ask me for my slug first.
+   - Express / FastAPI: mount the router under the APP_SLUG prefix, or use relative asset paths in your HTML.
+   - Streamlit: no change needed — the platform auth proxy handles this.
+7. If my app needs a database, tell me which one. The deploy system passes env vars for TWO databases:
+   - DB_HOST, DB_USER, DB_PASSWORD — the Nest MySQL database (student / coaching data).
+   - ACQ_DB_HOST, ACQ_DB_USER, ACQ_DB_PASSWORD — the Acquisition PostgreSQL database (sales / marketing / audit logs).
+   Read the right vars in my code. Do NOT hardcode credentials, and do NOT generic-read "DB_HOST" if I need Acquisition — read "ACQ_DB_HOST" explicitly so I get the right DB automatically.
+8. Create or update my .env.example with these keys:
    - APP_SLUG (my app's slug, lowercase, no spaces)
    - AIHUB_DEV_EMAIL (set to my email so auth works locally without SSO)
    - PORT (the port my app listens on)
-7. Make sure the app starts cleanly and test that protected routes return user info
-8. Push my code to a GitHub repo under the egelloc-corporation org (private repos are fine — the deploy system has access)
-9. When done, tell me exactly what to fill in for the AI Hub registration form:
+9. Make sure the app starts cleanly and test that protected routes return user info
+10. Push my code to a GitHub repo under the egelloc-corporation org (private repos are fine — the deploy system has access)
+11. When done, tell me exactly what to fill in for the AI Hub registration form:
    - App slug
    - Port number
    - Git repo URL (required — must be an HTTPS clone URL under the egelloc-corporation org)
@@ -795,7 +805,9 @@ Then:
    - A short description (shown on the launcher page)
    - List of environment variable keys my app needs
 
-Note: If you're updating an existing app, just resubmit with the same slug — it will go through the approval flow again as an update.</div>
+Note: If you're updating an existing app, just resubmit with the same slug — it will go through the approval flow again as an update.
+
+Quick reference for the path prefix problem (step 6): the app will be served at aihub.egelloc.com/APP_SLUG/. Any asset URL, fetch() call, or link in my HTML that starts with "/" bypasses that prefix and hits the admin panel instead — which is why dashboards show up unstyled with no data. Fix this in step 6 before submitting or the first deploy will look broken.</div>
         </div>
         <div class="after-prompt">Claude will adapt the auth to whatever stack you're using (Express, Flask, FastAPI, etc.) and tell you what to put in each field below.</div>
       </div>
@@ -822,6 +834,51 @@ Note: If you're updating an existing app, just resubmit with the same slug — i
             </table>
           </div>
           That's it. Push to main and your changes go live automatically.
+        </div>
+      </div>
+    </div>
+
+    <div class="getting-started" style="cursor:pointer;margin-top:12px;" onclick="var b=this.querySelector('.getting-started-body');var a=this.querySelector('.getting-started-arrow');if(b.style.display==='none'){b.style.display='block';a.textContent='\u25bc';}else{b.style.display='none';a.textContent='\u25b6';}">
+      <div class="getting-started-title" style="display:flex;align-items:center;gap:8px;">
+        <span class="getting-started-arrow" style="font-size:12px;color:var(--text-dim);">&#x25b6;</span>
+        Common deployment gotchas — read this if your app isn't rendering correctly
+        <span class="badge">Troubleshooting</span>
+      </div>
+      <div class="getting-started-body" style="display:none;" onclick="event.stopPropagation();">
+        <div class="lead" style="margin-top:12px;line-height:1.7;">
+          Every app is served at <code>aihub.egelloc.com/&lt;slug&gt;/</code>, not at the root. These are the three issues that break 90% of first deploys:
+
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:10px 0;">
+            <strong style="color:var(--accent);">1. Path prefix — absolute URLs bypass your app</strong><br>
+            <span style="font-size:13px;color:var(--text-muted);">Symptom: page loads but CSS/JS don't, or &ldquo;This page isn't working&rdquo;, or dashboard renders with no data.</span><br><br>
+            <span style="font-size:13px;">Any URL in your HTML/JS that starts with <code>/</code> goes to the platform root, not your app. Fix per stack:</span>
+            <ul style="font-size:13px;margin:6px 0 0 20px;padding:0;">
+              <li><strong>Flask / Jinja templates:</strong> use relative paths — <code>href="static/css/style.css"</code> (not <code>"/static/..."</code>)</li>
+              <li><strong>Flask JS fetch():</strong> <code>fetch("api/stats")</code> (not <code>"/api/stats"</code>)</li>
+              <li><strong>Next.js:</strong> add <code>basePath: "/your-slug"</code> to <code>next.config.ts</code>, then rebuild</li>
+              <li><strong>Express / FastAPI:</strong> mount the router under the slug prefix, or use relative asset paths</li>
+              <li><strong>Streamlit:</strong> handled by the platform auth proxy — no change needed</li>
+            </ul>
+          </div>
+
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:10px 0;">
+            <strong style="color:var(--accent);">2. Port conflicts</strong><br>
+            <span style="font-size:13px;color:var(--text-muted);">Symptom: deploy fails with &ldquo;address already in use&rdquo;.</span><br><br>
+            <span style="font-size:13px;">
+              The submission check now blocks ports held by other containers <em>and</em> host processes, but for reference: pick a port <strong>3000 is taken</strong> (Mission Control / Ruby), <strong>3001/3004/3010/3011</strong> are taken by other apps, <strong>5051/5052</strong> are admin/briefer, <strong>8080/8081/8501/8502</strong> are dashboards. Try something like <strong>3012+</strong> for new Flask/Node apps, or <strong>8083+</strong> for Streamlit.
+            </span>
+          </div>
+
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:10px 0;">
+            <strong style="color:var(--accent);">3. Database credentials</strong><br>
+            <span style="font-size:13px;color:var(--text-muted);">Symptom: &ldquo;connection failed&rdquo; or &ldquo;SSL required&rdquo; in the container logs.</span><br><br>
+            <span style="font-size:13px;">The platform injects env vars for two separate DBs. Read the right ones in your code:</span>
+            <ul style="font-size:13px;margin:6px 0 0 20px;padding:0;">
+              <li><code>DB_HOST</code> / <code>DB_USER</code> / <code>DB_PASSWORD</code> &rarr; Nest MySQL (students, coaching)</li>
+              <li><code>ACQ_DB_HOST</code> / <code>ACQ_DB_USER</code> / <code>ACQ_DB_PASSWORD</code> &rarr; Acquisition PostgreSQL (sales, marketing, audit)</li>
+            </ul>
+            <span style="font-size:13px;">If your app generically reads <code>DB_HOST</code> but needs Acquisition, you'll connect to the wrong database. Read <code>ACQ_DB_HOST</code> explicitly.</span>
+          </div>
         </div>
       </div>
     </div>
