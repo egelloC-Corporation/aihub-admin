@@ -4,10 +4,11 @@ Database provisioning for AI Hub apps.
 
 Creates a scoped Postgres user per app with:
   - Its own schema (app_<name>)
-  - SELECT, INSERT, UPDATE on its own tables
-  - CREATE on its own schema (so the app can create tables)
+  - Full DML on its own tables: SELECT, INSERT, UPDATE, DELETE, TRUNCATE,
+    REFERENCES, TRIGGER (covers normal CRUD apps and ORM tools like Prisma
+    that need foreign keys, triggers, and table-resets during migrations)
+  - CREATE on its own schema (so the app can create/alter/drop its own tables)
   - No access to public schema or other app schemas
-  - No DELETE, DROP, TRUNCATE
 
 Usage:
     python scripts/db_provision.py create myapp
@@ -74,14 +75,19 @@ def _get_sql_create(db_user, password, schema):
     # Postgres identifiers must be quoted to be safe
     q_user = f'"{db_user}"'
     q_schema = f'"{schema}"'
+    # Full DML (SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER) is needed
+    # for ordinary CRUD apps and ORMs like Prisma. Schema-level CREATE lets the
+    # app create/alter/drop its OWN tables (it owns them). Cross-schema access
+    # is revoked so apps can't read each other's data.
     return [
         (f"CREATE SCHEMA IF NOT EXISTS {q_schema}", None),
         (f"CREATE USER {q_user} WITH PASSWORD %s", (password,)),
+        (f"ALTER SCHEMA {q_schema} OWNER TO {q_user}", None),
         (f"GRANT USAGE, CREATE ON SCHEMA {q_schema} TO {q_user}", None),
-        (f"GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA {q_schema} TO {q_user}", None),
-        (f"ALTER DEFAULT PRIVILEGES IN SCHEMA {q_schema} GRANT SELECT, INSERT, UPDATE ON TABLES TO {q_user}", None),
-        (f"GRANT USAGE ON ALL SEQUENCES IN SCHEMA {q_schema} TO {q_user}", None),
-        (f"ALTER DEFAULT PRIVILEGES IN SCHEMA {q_schema} GRANT USAGE ON SEQUENCES TO {q_user}", None),
+        (f"GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA {q_schema} TO {q_user}", None),
+        (f"ALTER DEFAULT PRIVILEGES IN SCHEMA {q_schema} GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLES TO {q_user}", None),
+        (f"GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA {q_schema} TO {q_user}", None),
+        (f"ALTER DEFAULT PRIVILEGES IN SCHEMA {q_schema} GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {q_user}", None),
         (f"REVOKE ALL ON SCHEMA public FROM {q_user}", None),
     ]
 
@@ -146,10 +152,14 @@ def create_app_user(app_name, dry_run=False):
     env_path = os.path.join(os.path.abspath(APPS_DIR), app_name, ".env")
     os.makedirs(os.path.dirname(env_path), exist_ok=True)
 
-    # Append DB credentials (don't overwrite existing .env)
+    # Append DB credentials (don't overwrite existing .env).
+    # DATABASE_URL uses ?schema= which is what Prisma reads, and also
+    # ?options=-csearch_path which is what raw libpq / psycopg / SQLAlchemy
+    # read. Both query params coexist so any client picks up the right schema
+    # without needing app-side SET search_path calls.
     db_lines = [
         f"\n# AI Hub shared database — auto-provisioned\n",
-        f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?options=-csearch_path%3D{schema}\n",
+        f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?schema={schema}&options=-csearch_path%3D{schema}\n",
         f"DB_USER={db_user}\n",
         f"DB_PASSWORD={password}\n",
         f"DB_HOST={POSTGRES_HOST}\n",
