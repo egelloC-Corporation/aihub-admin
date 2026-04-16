@@ -79,9 +79,16 @@ def _get_sql_create(db_user, password, schema):
     # for ordinary CRUD apps and ORMs like Prisma. Schema-level CREATE lets the
     # app create/alter/drop its OWN tables (it owns them). Cross-schema access
     # is revoked so apps can't read each other's data.
+    #
+    # Idempotent: every redeploy rotates the password (CREATE-or-ALTER),
+    # re-grants permissions (no-op if already granted), and re-writes .env.
+    # This way an .env loss (e.g. user deleted it manually) self-heals on next
+    # deploy without leaving the user locked out.
+    # CREATE-or-ALTER user is handled by create_app_user() before invoking
+    # this list, since psycopg2's parameter substitution doesn't compose
+    # cleanly with PL/pgSQL EXECUTE format() inside a DO block.
     return [
         (f"CREATE SCHEMA IF NOT EXISTS {q_schema}", None),
-        (f"CREATE USER {q_user} WITH PASSWORD %s", (password,)),
         (f"ALTER SCHEMA {q_schema} OWNER TO {q_user}", None),
         (f"GRANT USAGE, CREATE ON SCHEMA {q_schema} TO {q_user}", None),
         (f"GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA {q_schema} TO {q_user}", None),
@@ -135,6 +142,15 @@ def create_app_user(app_name, dry_run=False):
     cursor = conn.cursor()
 
     try:
+        # CREATE-or-ALTER the user with the new password. Idempotent so
+        # repeated provisioning (e.g. .env got lost) self-heals.
+        q_user = f'"{db_user}"'
+        cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (db_user,))
+        if cursor.fetchone():
+            cursor.execute(f"ALTER USER {q_user} WITH PASSWORD %s", (password,))
+        else:
+            cursor.execute(f"CREATE USER {q_user} WITH PASSWORD %s", (password,))
+
         for sql, params in sql_statements:
             if params:
                 cursor.execute(sql, params)
