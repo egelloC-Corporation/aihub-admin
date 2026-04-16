@@ -100,6 +100,24 @@
       background: var(--surface-hover);
       transform: translateY(-2px);
     }
+    .app-card .drag-grip {
+      position: absolute; top: 0; left: 0; bottom: 0; width: 20px;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity 0.15s; cursor: grab;
+      color: var(--text-dim); border-radius: var(--radius) 0 0 var(--radius);
+    }
+    .app-card .drag-grip svg { width: 10px; height: 16px; }
+    .app-card:hover .drag-grip { opacity: 1; }
+    .app-card.dragging {
+      opacity: 0.4;
+      transform: scale(0.95);
+    }
+    .app-card.dragging .drag-grip { cursor: grabbing; }
+    .app-card.drag-over {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-dim);
+      transform: scale(1.02);
+    }
     .app-card .icon {
       width: 44px; height: 44px;
       border-radius: 10px;
@@ -139,10 +157,62 @@
       font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
     }
 
+    /* ── List view ── */
+    .app-grid.list-view {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    .app-grid.list-view .app-card {
+      flex-direction: row;
+      align-items: center;
+      padding: 14px 20px;
+      gap: 14px;
+    }
+    .app-grid.list-view .app-card .icon {
+      width: 36px; height: 36px; font-size: 18px;
+      flex-shrink: 0;
+    }
+    .app-grid.list-view .app-card .app-name {
+      font-size: 14px; min-width: 180px;
+    }
+    .app-grid.list-view .app-card .app-desc {
+      font-size: 12px; flex: 1;
+    }
+    .app-grid.list-view .app-card .app-arrow {
+      position: static; margin-left: auto; flex-shrink: 0;
+    }
+
+    /* ── View toggle ── */
+    .view-toggle {
+      display: inline-flex; gap: 2px;
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 2px;
+    }
+    .view-toggle button {
+      background: none; border: none; color: var(--text-dim);
+      width: 28px; height: 24px; border-radius: 4px; cursor: pointer;
+      font-size: 11px; line-height: 1; transition: all 0.15s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .view-toggle button.active {
+      background: var(--accent-dim); color: var(--accent);
+    }
+    .view-toggle button:hover:not(.active) {
+      color: var(--text-muted);
+    }
+
     .icon-briefer { background: rgba(79, 143, 247, 0.15); color: var(--accent); }
     .icon-hub { background: rgba(167, 139, 250, 0.15); color: var(--purple); }
     .icon-admin { background: rgba(245, 158, 11, 0.15); color: var(--orange); }
-    .icon-deployed { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+    /* Per-app icon colors — cycle through a cohesive palette */
+    .icon-clr-0 { background: rgba(20, 184, 166, 0.15); color: #14b8a6; }  /* teal */
+    .icon-clr-1 { background: rgba(99, 102, 241, 0.15); color: #6366f1; }  /* indigo */
+    .icon-clr-2 { background: rgba(244, 63, 94, 0.15); color: #f43f5e; }   /* rose */
+    .icon-clr-3 { background: rgba(6, 182, 212, 0.15); color: #06b6d4; }   /* cyan */
+    .icon-clr-4 { background: rgba(234, 179, 8, 0.15); color: #eab308; }   /* yellow */
+    .icon-clr-5 { background: rgba(168, 85, 247, 0.15); color: #a855f7; }  /* violet */
+    .icon-clr-6 { background: rgba(249, 115, 22, 0.15); color: #f97316; }  /* orange */
+    .icon-clr-7 { background: rgba(16, 185, 129, 0.15); color: #10b981; }  /* emerald */
 
     .footer {
       text-align: center; padding: 20px;
@@ -163,6 +233,10 @@
   <div class="welcome">
     <h2 id="greeting">Welcome</h2>
     <p>Select an application to get started</p>
+    <div class="view-toggle" id="viewToggle" style="margin-top:12px;">
+      <button onclick="setView('grid')" title="Grid view"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="7" height="7" rx="1.5"/><rect x="9" y="0" width="7" height="7" rx="1.5"/><rect x="0" y="9" width="7" height="7" rx="1.5"/><rect x="9" y="9" width="7" height="7" rx="1.5"/></svg></button>
+      <button onclick="setView('list')" title="List view"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="1" width="16" height="3" rx="1"/><rect x="0" y="6.5" width="16" height="3" rx="1"/><rect x="0" y="12" width="16" height="3" rx="1"/></svg></button>
+    </div>
   </div>
 
   <div class="app-grid" id="appGrid">
@@ -203,6 +277,12 @@ const APP_DEFS = [
   },
 ];
 
+function slugColor(slug) {
+  var h = 0;
+  for (var i = 0; i < slug.length; i++) h = ((h << 5) - h + slug.charCodeAt(i)) | 0;
+  return ((h % 8) + 8) % 8;
+}
+
 async function loadDeployedApps() {
   try {
     const resp = await fetch("/launcher/api/apps");
@@ -214,7 +294,7 @@ async function loadDeployedApps() {
         name: app.name,
         description: app.description || "",
         icon: app.icon || "&#x1f4e6;",
-        iconClass: "icon-deployed",
+        iconClass: "icon-clr-" + slugColor(app.slug),
         url: "/" + app.slug + "/",
         alwaysAccessible: false,
       };
@@ -245,7 +325,6 @@ async function init() {
 
 function renderApps(userPerms, deployedApps) {
   const grid = document.getElementById("appGrid");
-  // Merge hardcoded apps with dynamically deployed ones
   const knownSlugs = new Set(APP_DEFS.map(a => a.slug));
   const allApps = APP_DEFS.concat((deployedApps || []).filter(a => !knownSlugs.has(a.slug)));
   const accessible = allApps.filter(app => app.alwaysAccessible || userPerms.includes(app.slug));
@@ -255,16 +334,119 @@ function renderApps(userPerms, deployedApps) {
     return;
   }
 
+  // Apply saved order
+  var savedOrder = [];
+  try { savedOrder = JSON.parse(localStorage.getItem("launcher-order") || "[]"); } catch(e) {}
+  if (savedOrder.length > 0) {
+    accessible.sort(function(a, b) {
+      var ai = savedOrder.indexOf(a.slug), bi = savedOrder.indexOf(b.slug);
+      if (ai === -1) ai = 999;
+      if (bi === -1) bi = 999;
+      return ai - bi;
+    });
+  }
+
   function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+  var gripSvg = '<div class="drag-grip"><svg viewBox="0 0 10 16" fill="currentColor"><circle cx="3" cy="2" r="1.2"/><circle cx="7" cy="2" r="1.2"/><circle cx="3" cy="6" r="1.2"/><circle cx="7" cy="6" r="1.2"/><circle cx="3" cy="10" r="1.2"/><circle cx="7" cy="10" r="1.2"/><circle cx="3" cy="14" r="1.2"/><circle cx="7" cy="14" r="1.2"/></svg></div>';
   grid.innerHTML = accessible.map(app => {
-    return '<a class="app-card" href="' + esc(app.url) + '">' +
+    return '<a class="app-card" draggable="true" data-slug="' + esc(app.slug) + '" href="' + esc(app.url) + '">' +
+      gripSvg +
       '<div class="icon ' + esc(app.iconClass || '') + '">' + app.icon + '</div>' +
       '<div class="app-name">' + esc(app.name) + '</div>' +
       '<div class="app-desc">' + esc(app.description) + '</div>' +
       '<div class="app-arrow">&rarr;</div>' +
     '</a>';
   }).join("");
+
+  initDragAndDrop();
 }
+
+function initDragAndDrop() {
+  const grid = document.getElementById("appGrid");
+  let dragEl = null;
+
+  grid.addEventListener("dragstart", function(e) {
+    var card = e.target.closest(".app-card");
+    if (!card) return;
+    dragEl = card;
+    card.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", card.dataset.slug);
+  });
+
+  grid.addEventListener("dragend", function(e) {
+    var card = e.target.closest(".app-card");
+    if (card) card.classList.remove("dragging");
+    grid.querySelectorAll(".drag-over").forEach(function(el) { el.classList.remove("drag-over"); });
+    dragEl = null;
+  });
+
+  grid.addEventListener("dragover", function(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    var card = e.target.closest(".app-card");
+    if (!card || card === dragEl) return;
+    grid.querySelectorAll(".drag-over").forEach(function(el) { el.classList.remove("drag-over"); });
+    card.classList.add("drag-over");
+  });
+
+  grid.addEventListener("dragleave", function(e) {
+    var card = e.target.closest(".app-card");
+    if (card) card.classList.remove("drag-over");
+  });
+
+  grid.addEventListener("drop", function(e) {
+    e.preventDefault();
+    var target = e.target.closest(".app-card");
+    if (!target || !dragEl || target === dragEl) return;
+    target.classList.remove("drag-over");
+    // Swap positions in DOM
+    var cards = Array.from(grid.querySelectorAll(".app-card"));
+    var dragIdx = cards.indexOf(dragEl);
+    var dropIdx = cards.indexOf(target);
+    if (dragIdx < dropIdx) {
+      grid.insertBefore(dragEl, target.nextSibling);
+    } else {
+      grid.insertBefore(dragEl, target);
+    }
+    // Save new order
+    var newOrder = Array.from(grid.querySelectorAll(".app-card")).map(function(el) { return el.dataset.slug; });
+    try { localStorage.setItem("launcher-order", JSON.stringify(newOrder)); } catch(e) {}
+  });
+
+  // Prevent navigating on drag
+  grid.addEventListener("click", function(e) {
+    if (e.target.closest(".app-card.dragging")) e.preventDefault();
+  });
+}
+
+function setView(mode) {
+  const grid = document.getElementById("appGrid");
+  const btns = document.querySelectorAll("#viewToggle button");
+  if (mode === "list") {
+    grid.classList.add("list-view");
+    btns[0].classList.remove("active");
+    btns[1].classList.add("active");
+  } else {
+    grid.classList.remove("list-view");
+    btns[0].classList.add("active");
+    btns[1].classList.remove("active");
+  }
+  try { localStorage.setItem("launcher-view", mode); } catch(e) {}
+}
+
+// Restore saved preference
+(function() {
+  var saved = "grid";
+  try { saved = localStorage.getItem("launcher-view") || "grid"; } catch(e) {}
+  if (saved === "list") {
+    document.getElementById("appGrid").classList.add("list-view");
+  }
+  var btns = document.querySelectorAll("#viewToggle button");
+  if (btns.length >= 2) {
+    btns[saved === "list" ? 1 : 0].classList.add("active");
+  }
+})();
 
 init();
 </script>
