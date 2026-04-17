@@ -1080,6 +1080,24 @@ def verify_webhook_signature(payload, signature):
     return hmac.compare_digest(expected, signature)
 
 
+def _record_webhook_delivery(repo_url):
+    """Persist that this repo has reached our webhook endpoint.
+    Powers the "Auto-deploy active" indicator in the registry."""
+    if not repo_url:
+        return
+    try:
+        from permissions import get_db as _get_pdb
+        conn = _get_pdb()
+        conn.execute(
+            "INSERT OR REPLACE INTO webhook_seen (repo_url, last_seen) VALUES (?, datetime('now'))",
+            (_normalize_repo(repo_url),),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning("webhook_seen write failed for %s: %s", repo_url, e)
+
+
 @app.route("/webhook/github", methods=["POST"])
 def github_webhook():
     """Auto-deploy apps when code is pushed to GitHub."""
@@ -1090,12 +1108,21 @@ def github_webhook():
         return jsonify({"error": "Invalid signature"}), 403
 
     event = request.headers.get("X-GitHub-Event", "")
-    if event != "push":
-        return jsonify({"status": "ignored", "event": event}), 200
-
     body = request.get_json(silent=True) or {}
     repo_url = body.get("repository", {}).get("clone_url", "")
     repo_name = body.get("repository", {}).get("full_name", "")
+
+    # ping = GitHub's "Test delivery" click (also sent when a webhook is
+    # first created). Record the signal so the registry can show the
+    # webhook is reachable, but don't deploy.
+    if event == "ping":
+        _record_webhook_delivery(repo_url)
+        log.info("Webhook ping: %s", repo_name)
+        return jsonify({"status": "pong", "repo": repo_name}), 200
+
+    if event != "push":
+        return jsonify({"status": "ignored", "event": event}), 200
+
     branch = body.get("ref", "").replace("refs/heads/", "")
 
     # Only deploy from main/master branch
@@ -1104,21 +1131,9 @@ def github_webhook():
 
     log.info("Webhook push: %s (branch: %s)", repo_name, branch)
 
-    # Track that this repo has a working webhook (persisted to DB).
     # Must happen BEFORE any self-deploy trigger — otherwise the restart
     # that follows wipes the in-flight write.
-    if repo_url:
-        try:
-            from permissions import get_db as _get_pdb
-            conn = _get_pdb()
-            conn.execute(
-                "INSERT OR REPLACE INTO webhook_seen (repo_url, last_seen) VALUES (?, datetime('now'))",
-                (_normalize_repo(repo_url),),
-            )
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            log.warning("webhook_seen write failed for %s: %s", repo_url, e)
+    _record_webhook_delivery(repo_url)
 
     results = []
 
