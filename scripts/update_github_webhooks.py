@@ -23,6 +23,7 @@ before running --apply.
 import argparse
 import json
 import os
+import subprocess
 import sys
 from urllib.parse import urlparse
 import urllib.request
@@ -34,6 +35,7 @@ WEBHOOK_PATH = "/webhook/github"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APPS_JSON = os.path.join(HERE, "..", "apps", "notes", "apps_data.json")
+PROD_HOST = "root@165.232.155.132"
 
 
 def _api(method, path, token, body=None):
@@ -61,8 +63,29 @@ def _repo_slug_from_url(github_url):
     return parts[0], parts[1].removesuffix(".git")
 
 
-def _load_repos():
-    """Unique (owner, repo) pairs from apps_data.json plus the admin repo."""
+def _load_repos_from_prod():
+    """Query the production admin-panel DB for live apps' repo URLs.
+    Authoritative — apps_data.json (the fallback) can drift."""
+    cmd = [
+        "ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", PROD_HOST,
+        'docker exec aihub-admin-panel python3 -c '
+        '"import sqlite3, json; '
+        'c=sqlite3.connect(\\"/app/permissions.db\\"); '
+        "rows=c.execute(\\\"SELECT repo_url FROM app_submissions WHERE status='live' AND repo_url!=''\\\").fetchall(); "
+        'print(json.dumps([r[0] for r in rows]))"',
+    ]
+    out = subprocess.check_output(cmd, text=True, timeout=15)
+    urls = json.loads(out.strip())
+    pairs = set()
+    for u in urls:
+        owner, repo = _repo_slug_from_url(u)
+        if owner and repo:
+            pairs.add((owner, repo))
+    return sorted(pairs)
+
+
+def _load_repos_from_json():
+    """Fallback: read apps_data.json if SSH to prod is unavailable."""
     with open(APPS_JSON) as f:
         apps = json.load(f)
     pairs = set()
@@ -70,15 +93,29 @@ def _load_repos():
         owner, repo = _repo_slug_from_url(a.get("github") or "")
         if owner and repo:
             pairs.add((owner, repo))
-    # Always include the admin repo (may already be covered by apps_data)
     pairs.add(("egelloC-Corporation", "aihub-admin"))
     return sorted(pairs)
+
+
+def _load_repos(source):
+    if source == "prod":
+        return _load_repos_from_prod()
+    if source == "json":
+        return _load_repos_from_json()
+    # auto: try prod first, fall back to json
+    try:
+        return _load_repos_from_prod()
+    except Exception as e:
+        print(f"  (prod DB unavailable: {e}; falling back to apps_data.json)")
+        return _load_repos_from_json()
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true",
                         help="Actually PATCH the webhooks (default: dry run)")
+    parser.add_argument("--source", choices=["auto", "prod", "json"], default="auto",
+                        help="Where to get the repo list from (default: auto)")
     args = parser.parse_args()
 
     token = os.environ.get("GH_PAT")
@@ -87,7 +124,7 @@ def main():
         print("  export GH_PAT='github_pat_...'", file=sys.stderr)
         sys.exit(2)
 
-    repos = _load_repos()
+    repos = _load_repos(args.source)
     print(f"Scanning {len(repos)} repos for webhooks pointing at {OLD_HOST}{WEBHOOK_PATH}")
     print(f"Mode: {'APPLY' if args.apply else 'DRY RUN'}")
     print()
