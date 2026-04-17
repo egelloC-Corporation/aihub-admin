@@ -2221,11 +2221,11 @@ async function fetchWebhookStatus() {
       if (!el) return;
       var val = data[slug];
       if (val === true) {
-        el.innerHTML = '<span style="color:var(--green);">&#10003; Webhook configured</span>';
+        el.innerHTML = '<span style="color:var(--green);">&#10003; Auto-deploy active</span>';
       } else if (val === false) {
-        el.innerHTML = '<span style="color:#ef4444;">&#10007; No webhook — pushes won\'t auto-deploy</span>';
+        el.innerHTML = '<span style="color:var(--text-dim);">&#9679; Webhook not yet verified — will confirm on next push</span>';
       } else {
-        el.innerHTML = '<span style="color:var(--text-dim);">— Webhook status unknown</span>';
+        el.innerHTML = '';
       }
     });
   } catch (e) {}

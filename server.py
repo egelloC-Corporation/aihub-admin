@@ -824,47 +824,27 @@ def api_delete_app():
     return jsonify(result)
 
 
+# Track which repos have sent us a webhook delivery.
+# Updated by the /webhook/github handler on every push event.
+# Shows "unknown" until the first push after container restart.
+_webhook_seen_repos = set()
+
+
 @app.route("/admin/api/apps/webhook-status")
 @admin_required
 def api_webhook_status():
     """Check which apps have GitHub webhooks configured.
-    Returns {slug: true/false} for all live/approved apps."""
-    github_token = os.environ.get("GITHUB_TOKEN", "")
-    if not github_token:
-        return jsonify({"error": "GITHUB_TOKEN not configured"}), 503
-
+    Uses local tracking (repos that have sent us a webhook) instead of
+    GitHub API (which requires admin:repo_hook scope we don't have)."""
     results = {}
     for s in get_all_submissions():
         if s.get("status") not in ("live", "approved"):
             continue
-        repo_url = s.get("repo_url", "")
-        if not repo_url or "github.com" not in repo_url:
-            results[s["slug"]] = None  # no repo
-            continue
-        # Extract owner/repo from URL
-        import re as _re
-        match = _re.search(r"github\.com/([^/]+/[^/.]+)", repo_url)
-        if not match:
+        repo_url = (s.get("repo_url") or "").lower().rstrip("/").replace(".git", "")
+        if not repo_url:
             results[s["slug"]] = None
             continue
-        repo_path = match.group(1)
-        try:
-            resp = http_requests.get(
-                f"https://api.github.com/repos/{repo_path}/hooks",
-                headers={"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github+json"},
-                timeout=5,
-            )
-            if resp.status_code == 200:
-                hooks = resp.json()
-                has_webhook = any(
-                    h.get("config", {}).get("url", "").endswith("/webhook/github")
-                    for h in hooks
-                )
-                results[s["slug"]] = has_webhook
-            else:
-                results[s["slug"]] = None  # API error
-        except Exception:
-            results[s["slug"]] = None
+        results[s["slug"]] = repo_url in _webhook_seen_repos
     return jsonify(results)
 
 
@@ -1041,6 +1021,10 @@ def github_webhook():
         return jsonify({"status": "ignored", "branch": branch}), 200
 
     log.info("Webhook push: %s (branch: %s)", repo_name, branch)
+
+    # Track that this repo has a working webhook
+    if repo_url:
+        _webhook_seen_repos.add(repo_url.lower().rstrip("/").replace(".git", ""))
 
     results = []
 
