@@ -2198,14 +2198,37 @@ async function loadSubmissions() {
           (s.repo_url ? '<div>Repo: <code>' + escHtml(s.repo_url) + '</code></div>' : '') +
           '<div>Port: <code>' + escHtml(s.port) + '</code>' + (s.streamlit_port ? ' &middot; Streamlit WS: <code>' + escHtml(s.streamlit_port) + '</code>' : '') + '</div>' +
           '<div>By: ' + escHtml(s.submitted_by) + (s.reviewed_by ? ' &middot; Reviewed by: ' + escHtml(s.reviewed_by) : '') + '</div>' +
+          '<div id="webhook-status-' + esc(s.slug) + '" style="margin-top:4px;font-size:12px;color:var(--text-dim);">Checking webhook...</div>' +
         '</div>' +
         actions +
         '<div id="deploy-result-' + s.id + '"></div>' +
       '</div>';
     }).join("");
+    // Fetch webhook status for all apps
+    fetchWebhookStatus();
   } catch (e) {
     container.innerHTML = '<div class="queue-empty">Failed to load submissions.</div>';
   }
+}
+
+async function fetchWebhookStatus() {
+  try {
+    var resp = await fetch("/admin/api/apps/webhook-status");
+    if (!resp.ok) return;
+    var data = await resp.json();
+    Object.keys(data).forEach(function(slug) {
+      var el = document.getElementById("webhook-status-" + slug);
+      if (!el) return;
+      var val = data[slug];
+      if (val === true) {
+        el.innerHTML = '<span style="color:var(--green);">&#10003; Webhook configured</span>';
+      } else if (val === false) {
+        el.innerHTML = '<span style="color:#ef4444;">&#10007; No webhook — pushes won\'t auto-deploy</span>';
+      } else {
+        el.innerHTML = '<span style="color:var(--text-dim);">— Webhook status unknown</span>';
+      }
+    });
+  } catch (e) {}
 }
 
 function editApp(id) {

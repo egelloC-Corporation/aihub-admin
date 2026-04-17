@@ -824,6 +824,50 @@ def api_delete_app():
     return jsonify(result)
 
 
+@app.route("/admin/api/apps/webhook-status")
+@admin_required
+def api_webhook_status():
+    """Check which apps have GitHub webhooks configured.
+    Returns {slug: true/false} for all live/approved apps."""
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    if not github_token:
+        return jsonify({"error": "GITHUB_TOKEN not configured"}), 503
+
+    results = {}
+    for s in get_all_submissions():
+        if s.get("status") not in ("live", "approved"):
+            continue
+        repo_url = s.get("repo_url", "")
+        if not repo_url or "github.com" not in repo_url:
+            results[s["slug"]] = None  # no repo
+            continue
+        # Extract owner/repo from URL
+        import re as _re
+        match = _re.search(r"github\.com/([^/]+/[^/.]+)", repo_url)
+        if not match:
+            results[s["slug"]] = None
+            continue
+        repo_path = match.group(1)
+        try:
+            resp = http_requests.get(
+                f"https://api.github.com/repos/{repo_path}/hooks",
+                headers={"Authorization": f"Bearer {github_token}", "Accept": "application/vnd.github+json"},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                hooks = resp.json()
+                has_webhook = any(
+                    h.get("config", {}).get("url", "").endswith("/webhook/github")
+                    for h in hooks
+                )
+                results[s["slug"]] = has_webhook
+            else:
+                results[s["slug"]] = None  # API error
+        except Exception:
+            results[s["slug"]] = None
+    return jsonify(results)
+
+
 @app.route("/admin/api/apps/status", methods=["POST"])
 @admin_required
 def api_update_app_status():
