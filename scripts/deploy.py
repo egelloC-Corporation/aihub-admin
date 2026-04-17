@@ -223,7 +223,17 @@ def _build_image(app_name, port=3000, dry_run=False):
             raise RuntimeError(f"No Dockerfile found in {build_dir} and could not auto-generate one (no package.json or requirements.txt)")
         print(f"  {result}")
 
-    msg = _run(["docker", "build", "-t", image_name, build_dir], dry_run=dry_run)
+    # Pass APP_SLUG and PORT as build args. Frameworks that bake a path
+    # prefix into static assets at build time (Next.js basePath, Vite base,
+    # Angular --base-href) need the slug at build, not just runtime — without
+    # it, /_next/* and /static/* assets 404 once the app sits behind /<slug>/.
+    cmd = [
+        "docker", "build",
+        "--build-arg", f"APP_SLUG={app_name}",
+        "--build-arg", f"PORT={port}",
+        "-t", image_name, build_dir,
+    ]
+    msg = _run(cmd, dry_run=dry_run)
     return msg or f"Built image {image_name}"
 
 
@@ -645,13 +655,31 @@ def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None,
         msg = _build_image(app_name, port=port, dry_run=dry_run)
         steps.append(msg)
 
-        # 3. Provision DB user
-        db_result = create_app_user(app_name, dry_run=dry_run)
-        if "error" in db_result:
-            steps.append(f"DB provisioning failed: {db_result['error']}")
-            # Non-fatal — app might not need a database
+        # 3. Provision DB user — but skip if the app's .env already has
+        # external DB credentials. Apps like briefer (Nest MySQL),
+        # incubator-logs (Acquisition Postgres), etc. manage their own
+        # DB connections and db_provision would overwrite them with local
+        # Postgres creds, breaking the app.
+        env_path = os.path.join(APPS_DIR, app_name, ".env")
+        skip_provision = False
+        if os.path.exists(env_path):
+            with open(env_path) as ef:
+                for line in ef:
+                    if line.startswith("DB_HOST=") or line.startswith("DATABASE_URL="):
+                        val = line.split("=", 1)[1].strip()
+                        if val and val != POSTGRES_HOST and val != "localhost" and not val.startswith("postgresql://" + POSTGRES_HOST):
+                            skip_provision = True
+                            break
+
+        if skip_provision:
+            steps.append(f"DB provisioning skipped — app has external DB in .env")
         else:
-            steps.append(f"DB user: {db_result.get('db_user', 'n/a')}")
+            db_result = create_app_user(app_name, dry_run=dry_run)
+            if "error" in db_result:
+                steps.append(f"DB provisioning failed: {db_result['error']}")
+                # Non-fatal — app might not need a database
+            else:
+                steps.append(f"DB user: {db_result.get('db_user', 'n/a')}")
 
         # 4. Start container
         msg = _start_container(app_name, port, streamlit_port=streamlit_port, dry_run=dry_run)
