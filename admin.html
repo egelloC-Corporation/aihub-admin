@@ -211,6 +211,22 @@
       border-radius: var(--radius); padding: 28px; width: 400px; max-width: 90vw;
     }
     .modal h3 { font-size: 16px; margin-bottom: 20px; }
+    .confirm-modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px; width: 380px; max-width: 90vw;
+      text-align: center;
+    }
+    .confirm-modal p { font-size: 14px; color: var(--text); margin-bottom: 6px; }
+    .confirm-modal .confirm-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 20px; }
+    .confirm-modal .confirm-btns { display: flex; gap: 10px; justify-content: center; }
+    .confirm-modal .confirm-btns button {
+      padding: 8px 24px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      cursor: pointer; border: 1px solid var(--border); font-family: inherit; transition: all 0.15s;
+    }
+    .confirm-modal .btn-cancel { background: none; color: var(--text-muted); }
+    .confirm-modal .btn-cancel:hover { background: var(--surface-hover); color: var(--text); }
+    .confirm-modal .btn-danger { background: #ef4444; border-color: #ef4444; color: #fff; }
+    .confirm-modal .btn-danger:hover { background: #dc2626; }
     .modal-field { margin-bottom: 14px; }
     .modal-field label {
       display: block; font-size: 11px; color: var(--text-dim);
@@ -291,8 +307,11 @@
     }
     .tab:hover { color: var(--text); }
     .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-    .tab-panel { display: none; flex-direction: column; overflow: hidden; flex: 1; min-height: 0; }
+    .tab-panel { display: none; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; }
     .tab-panel.active { display: flex; }
+    /* Permissions tab: table handles its own scroll, so don't scroll the panel */
+    #tab-permissions { overflow: hidden; }
+    #tab-permissions.active { overflow: hidden; }
 
     /* Infrastructure styles */
     .infra-grid {
@@ -1081,6 +1100,17 @@ SECRET_TOKEN</span></span>
 
 </div><!-- end container -->
 
+<div class="modal-overlay" id="confirmModal">
+  <div class="confirm-modal">
+    <p id="confirmMsg"></p>
+    <div class="confirm-sub" id="confirmSub"></div>
+    <div class="confirm-btns">
+      <button class="btn-cancel" onclick="closeConfirm(false)">Cancel</button>
+      <button class="btn-danger" id="confirmBtn" onclick="closeConfirm(true)">Delete</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="addUserModal">
   <div class="modal">
     <h3>Add User</h3>
@@ -1452,10 +1482,28 @@ async function removeUser(email) {
   loadData();
 }
 
-async function deleteUser(email, name) {
-  if (!confirm("Delete " + name + " (" + email + ")?\n\nThis will revoke ALL their app permissions.")) return;
+var _confirmResolve = null;
+function showConfirm(msg, sub) {
+  document.getElementById("confirmMsg").textContent = msg;
+  document.getElementById("confirmSub").textContent = sub || "";
+  document.getElementById("confirmModal").classList.add("open");
+  return new Promise(function(resolve) { _confirmResolve = resolve; });
+}
+function closeConfirm(result) {
+  document.getElementById("confirmModal").classList.remove("open");
+  if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
+}
+document.getElementById("confirmModal").addEventListener("click", function(e) {
+  if (e.target === this) closeConfirm(false);
+});
 
-  // Revoke all permissions for this user
+async function deleteUser(email, name) {
+  var confirmed = await showConfirm(
+    "Remove " + name + "?",
+    "This will revoke all app permissions and hide them from the list."
+  );
+  if (!confirmed) return;
+
   var user = DATA.users.find(u => u.email === email);
   if (user && user.permissions.length > 0) {
     await fetch("/admin/api/bulk", {
@@ -1467,8 +1515,6 @@ async function deleteUser(email, name) {
     });
   }
 
-  // Remove custom user AND hide from the list (Nest users can't be deleted
-  // from the source DB, so we hide them on the platform side)
   await fetch("/admin/api/remove-user", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
