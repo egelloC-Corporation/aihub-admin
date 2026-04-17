@@ -1240,8 +1240,9 @@ function render() {
     var deleteBtn = '<button class="remove-btn" title="Delete user and revoke all permissions" onclick="deleteUser(\'' + u.email.replace(/'/g, "\\'") + '\', \'' + (u.first_name + ' ' + u.last_name).replace(/'/g, "\\'") + '\')">&times;</button>';
 
     var editedBadge = u.name_edited ? '<span class="source-badge" style="background:rgba(79,143,247,0.15);color:#4f8ff7;">edited</span>' : '';
-    var nameDisplay = esc(u.first_name + ' ' + u.last_name);
-    var nameEl = '<span class="editable-name" title="Click to rename" onclick="editName(\'' + u.email.replace(/'/g, "\\'") + '\', \'' + esc(u.first_name).replace(/'/g, "\\'") + '\', \'' + esc(u.last_name).replace(/'/g, "\\'") + '\')">' + nameDisplay + '</span>';
+    function escAttr(s) { return String(s||"").replace(/&/g,"&amp;").replace(/'/g,"&#39;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+    var nameDisplay = escAttr(u.first_name + ' ' + u.last_name);
+    var nameEl = '<span class="editable-name" title="Click to rename" onclick="editName(\'' + escAttr(u.email) + '\', \'' + escAttr(u.first_name) + '\', \'' + escAttr(u.last_name) + '\')">' + nameDisplay + '</span>';
 
     return '<tr>' +
       '<td><div class="user-cell">' +
