@@ -164,34 +164,49 @@ def create_app_user(app_name, dry_run=False):
     cursor.close()
     conn.close()
 
-    # Write credentials to the app's .env file
+    # Write credentials to the app's .env file — but only if the .env
+    # doesn't already have manually-set DB_HOST pointing to an external
+    # database. Apps like incubator-logs connect to the Acquisition Postgres
+    # (DO managed DB), not the local aihub-postgres. Appending local creds
+    # would override those and break the app on every deploy.
     env_path = os.path.join(os.path.abspath(APPS_DIR), app_name, ".env")
     os.makedirs(os.path.dirname(env_path), exist_ok=True)
 
-    # Append DB credentials (don't overwrite existing .env).
-    # DATABASE_URL uses ?schema= which is what Prisma reads, and also
-    # ?options=-csearch_path which is what raw libpq / psycopg / SQLAlchemy
-    # read. Both query params coexist so any client picks up the right schema
-    # without needing app-side SET search_path calls.
-    db_lines = [
-        f"\n# AI Hub shared database — auto-provisioned\n",
-        f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?schema={schema}&options=-csearch_path%3D{schema}\n",
-        f"DB_USER={db_user}\n",
-        f"DB_PASSWORD={password}\n",
-        f"DB_HOST={POSTGRES_HOST}\n",
-        f"DB_PORT={POSTGRES_PORT}\n",
-        f"DB_NAME={POSTGRES_DB}\n",
-        f"DB_SCHEMA={schema}\n",
-    ]
+    has_external_db = False
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("DB_HOST=") and "auto-provisioned" not in line:
+                    host_val = line.split("=", 1)[1].strip()
+                    # If DB_HOST points somewhere other than the local postgres,
+                    # the app uses an external DB — don't overwrite.
+                    if host_val and host_val != POSTGRES_HOST and host_val != "localhost":
+                        has_external_db = True
+                        break
 
-    with open(env_path, "a") as f:
-        f.writelines(db_lines)
+    if has_external_db:
+        print(f"  Skipping .env write — app has external DB_HOST in {env_path}")
+    else:
+        db_lines = [
+            f"\n# AI Hub shared database — auto-provisioned\n",
+            f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?schema={schema}&options=-csearch_path%3D{schema}\n",
+            f"DB_USER={db_user}\n",
+            f"DB_PASSWORD={password}\n",
+            f"DB_HOST={POSTGRES_HOST}\n",
+            f"DB_PORT={POSTGRES_PORT}\n",
+            f"DB_NAME={POSTGRES_DB}\n",
+            f"DB_SCHEMA={schema}\n",
+        ]
+        with open(env_path, "a") as f:
+            f.writelines(db_lines)
+        print(f"  Credentials written to {env_path}")
 
     # Restrict file permissions (owner read/write only)
-    os.chmod(env_path, stat.S_IRUSR | stat.S_IWUSR)
+    if os.path.exists(env_path):
+        os.chmod(env_path, stat.S_IRUSR | stat.S_IWUSR)
 
     print(f"  Created DB user '{db_user}' with schema '{schema}'")
-    print(f"  Credentials written to {env_path}")
 
     return {
         "status": "created",
