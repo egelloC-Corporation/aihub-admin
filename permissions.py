@@ -48,6 +48,11 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS webhook_seen (
+            repo_url TEXT PRIMARY KEY,
+            last_seen TEXT DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE IF NOT EXISTS hidden_users (
             email TEXT PRIMARY KEY,
             hidden_by TEXT,

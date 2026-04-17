@@ -849,27 +849,34 @@ def api_delete_app():
     return jsonify(result)
 
 
-# Track which repos have sent us a webhook delivery.
-# Updated by the /webhook/github handler on every push event.
-# Shows "unknown" until the first push after container restart.
-_webhook_seen_repos = set()
+def _normalize_repo(url):
+    return (url or "").lower().rstrip("/").removesuffix(".git")
 
 
 @app.route("/admin/api/apps/webhook-status")
 @admin_required
 def api_webhook_status():
     """Check which apps have GitHub webhooks configured.
-    Uses local tracking (repos that have sent us a webhook) instead of
-    GitHub API (which requires admin:repo_hook scope we don't have)."""
+    Reads from webhook_seen table (persisted across restarts)."""
+    from permissions import get_db as _get_pdb
+    conn = _get_pdb()
+    try:
+        seen = {row["repo_url"] for row in conn.execute("SELECT repo_url FROM webhook_seen").fetchall()}
+    except Exception as e:
+        log.warning("webhook_seen read failed: %s", e)
+        seen = set()
+    finally:
+        conn.close()
+
     results = {}
     for s in get_all_submissions():
         if s.get("status") not in ("live", "approved"):
             continue
-        repo_url = (s.get("repo_url") or "").lower().rstrip("/").replace(".git", "")
+        repo_url = _normalize_repo(s.get("repo_url"))
         if not repo_url:
             results[s["slug"]] = None
             continue
-        results[s["slug"]] = repo_url in _webhook_seen_repos
+        results[s["slug"]] = repo_url in seen
     return jsonify(results)
 
 
@@ -1097,9 +1104,21 @@ def github_webhook():
 
     log.info("Webhook push: %s (branch: %s)", repo_name, branch)
 
-    # Track that this repo has a working webhook
+    # Track that this repo has a working webhook (persisted to DB).
+    # Must happen BEFORE any self-deploy trigger — otherwise the restart
+    # that follows wipes the in-flight write.
     if repo_url:
-        _webhook_seen_repos.add(repo_url.lower().rstrip("/").replace(".git", ""))
+        try:
+            from permissions import get_db as _get_pdb
+            conn = _get_pdb()
+            conn.execute(
+                "INSERT OR REPLACE INTO webhook_seen (repo_url, last_seen) VALUES (?, datetime('now'))",
+                (_normalize_repo(repo_url),),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            log.warning("webhook_seen write failed for %s: %s", repo_url, e)
 
     results = []
 
@@ -1117,13 +1136,11 @@ def github_webhook():
     # hub   = the knowledge base (PM2/Next.js, served on host:3004 via host.docker.internal)
     SPECIAL_CASE_SLUGS = {"admin", "hub"}
 
+    normalized_push = _normalize_repo(repo_url)
     for row in rows:
         if row["slug"] in SPECIAL_CASE_SLUGS:
             continue
-        # Match by repo URL (normalize trailing .git)
-        app_repo = row["repo_url"].rstrip("/").removesuffix(".git")
-        push_repo = repo_url.rstrip("/").removesuffix(".git")
-        if app_repo.lower() == push_repo.lower():
+        if _normalize_repo(row["repo_url"]) == normalized_push:
             try:
                 resp = http_requests.post(
                     f"{DEPLOY_SERVICE_URL}/deploy",
