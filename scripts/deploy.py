@@ -742,17 +742,18 @@ def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None,
                 for line in ef:
                     if line.startswith("DB_HOST=") or line.startswith("DATABASE_URL="):
                         val = line.split("=", 1)[1].strip()
-                        if val and val != POSTGRES_HOST and val != "localhost" and not val.startswith("postgresql://" + POSTGRES_HOST):
+                        pg_host = os.environ.get("POSTGRES_HOST", "postgres")
+                        if val and val != pg_host and val != "localhost" and not val.startswith("postgresql://" + pg_host):
                             skip_provision = True
                             break
 
+        db_result = {}
         if skip_provision:
             steps.append(f"DB provisioning skipped — app has external DB in .env")
         else:
             db_result = create_app_user(app_name, dry_run=dry_run)
             if "error" in db_result:
                 steps.append(f"DB provisioning failed: {db_result['error']}")
-                # Non-fatal — app might not need a database
             else:
                 steps.append(f"DB user: {db_result.get('db_user', 'n/a')}")
 
