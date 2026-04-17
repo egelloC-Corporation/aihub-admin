@@ -821,10 +821,10 @@
             <span>Paste this into Claude from your project folder</span>
             <span class="copy-hint" id="copyHint">Click to copy</span>
           </div>
-          <div class="prompt-text" id="claudePrompt">I need to deploy my app on AI Hub at aihub.egelloc.com. The platform handles SSO, port assignment, and deployment automatically. Walk me through the setup.
+          <div class="prompt-text" id="claudePrompt">I need to deploy my app on AI Hub at incubator.egelloc.com. The platform handles SSO, port assignment, and deployment automatically. Walk me through the setup.
 
 ## Platform info
-- Apps are served at aihub.egelloc.com/APP_SLUG/ behind a reverse proxy (nginx). The proxy strips the /APP_SLUG prefix before forwarding to the container, so the app sees root-relative paths (/, /api/..., etc.).
+- Apps are served at incubator.egelloc.com/APP_SLUG/ behind a reverse proxy (nginx). The proxy strips the /APP_SLUG prefix before forwarding to the container, so the app sees root-relative paths (/, /api/..., etc.).
 - Auth is handled by the platform's Google OAuth SSO. Apps verify sessions by calling AIHUB_AUTH_URL (set at runtime, reads the platform session cookie).
 - Ports are auto-assigned — I do NOT need to pick one. The deploy system assigns a free port and sets the PORT env var.
 - After approval, every push to the GitHub main branch auto-deploys.
@@ -902,7 +902,7 @@
 
 10. Add a GitHub webhook for auto-deploy after approval:
     Repo → Settings → Webhooks → Add webhook
-    Payload URL: https://aihub.egelloc.com/webhook/github
+    Payload URL: https://incubator.egelloc.com/webhook/github
     Content type: application/json
     Secret: ask an admin
     Events: just push
@@ -933,7 +933,7 @@
           <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:8px 0;font-size:13px;">
             Go to your repo &rarr; <strong>Settings</strong> &rarr; <strong>Webhooks</strong> &rarr; <strong>Add webhook</strong><br><br>
             <table style="font-size:12px;color:var(--text-muted);">
-              <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Payload URL</td><td><code>https://aihub.egelloc.com/webhook/github</code></td></tr>
+              <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Payload URL</td><td><code>https://incubator.egelloc.com/webhook/github</code></td></tr>
               <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Content type</td><td><code>application/json</code></td></tr>
               <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Secret</td><td>Ask an admin for the webhook secret</td></tr>
               <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Events</td><td>Just the <strong>push</strong> event</td></tr>

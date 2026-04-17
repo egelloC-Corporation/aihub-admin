@@ -39,7 +39,7 @@ npm run dev
 
 **Locally** — set `AIHUB_DEV_EMAIL` in `.env` and auth is bypassed. Every request authenticates as that email with permission for your `APP_SLUG`. No Google OAuth, no running the admin panel, no cookie wrangling across ports.
 
-**In production** — remove `AIHUB_DEV_EMAIL` (or leave it unset). The SDK automatically switches to real auth: it forwards the user's session cookie to AI Hub's `/auth/me` endpoint. Since all apps run behind `aihub.egelloc.com`, the cookie is shared and everything works.
+**In production** — remove `AIHUB_DEV_EMAIL` (or leave it unset). The SDK automatically switches to real auth: it forwards the user's session cookie to AI Hub's `/auth/me` endpoint. Since all apps run behind `incubator.egelloc.com`, the cookie is shared and everything works.
 
 The user object on `req.user`:
 

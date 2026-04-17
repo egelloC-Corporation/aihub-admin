@@ -1,6 +1,6 @@
 # AI Hub Admin Panel
 
-The platform layer for [aihub.egelloc.com](https://aihub.egelloc.com) — authentication, app launcher, permissions, and infrastructure access management.
+The platform layer for [incubator.egelloc.com](https://incubator.egelloc.com) — authentication, app launcher, permissions, and infrastructure access management.
 
 ## What it does
 

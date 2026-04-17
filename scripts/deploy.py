@@ -452,7 +452,10 @@ def _health_check(app_name, port, retries=5, dry_run=False):
     warnings = []
     try:
         nginx_url = f"http://localhost/{app_name}/"
-        req = urllib.request.Request(nginx_url, headers={"Host": "aihub.egelloc.com"})
+        # Host header must match a server_name on the host nginx. Either
+        # aihub.egelloc.com or incubator.egelloc.com works during dual-serve.
+        host_header = os.environ.get("NGINX_SMOKE_HOST", "incubator.egelloc.com")
+        req = urllib.request.Request(nginx_url, headers={"Host": host_header})
         with urllib.request.urlopen(req, timeout=10) as resp:
             body = resp.read()
             status = resp.status

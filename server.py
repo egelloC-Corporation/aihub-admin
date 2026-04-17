@@ -161,8 +161,8 @@ def audit_log_request(response):
     if request.path == "/auth/me":
         referer = request.headers.get("Referer", "")
         ref_parts = [p for p in referer.split("/") if p]
-        # Referer looks like "https://aihub.egelloc.com/sales-kpi/..."
-        # After split: ['https:', 'aihub.egelloc.com', 'sales-kpi', ...]
+        # Referer looks like "https://incubator.egelloc.com/sales-kpi/..."
+        # After split: ['https:', 'incubator.egelloc.com', 'sales-kpi', ...]
         ref_slug = ref_parts[2] if len(ref_parts) > 2 else None
         if ref_slug in _known_slugs:
             log_event(
@@ -383,7 +383,7 @@ def knowledge_proxy(path=""):
 
 @app.route("/auth/check")
 def auth_check():
-    """Used by Nginx auth_request to gate all of aihub.egelloc.com."""
+    """Used by Nginx auth_request to gate all of incubator.egelloc.com."""
     user = session.get("user")
     if user:
         resp = Response("OK", status=200)

@@ -83,7 +83,7 @@ HOP_BY_HOP = frozenset({
 
 ### 5. WebSocket connection fails (`/_stcore/stream` returns 400)
 
-**Error:** `WebSocket connection to 'wss://aihub.egelloc.com/app-name/_stcore/stream' failed`. The Streamlit skeleton loads but data never appears.
+**Error:** `WebSocket connection to 'wss://incubator.egelloc.com/app-name/_stcore/stream' failed`. The Streamlit skeleton loads but data never appears.
 
 **Cause:** Streamlit uses WebSocket via `/_stcore/stream` to push data to the browser. Flask's dev server (werkzeug) cannot handle WebSocket upgrade requests — it returns HTTP 400.
 
