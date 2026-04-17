@@ -167,6 +167,7 @@ def main():
     # Apply.
     print(f"Updating {len(updates)} webhook(s)...")
     ok_count = 0
+    patched = []  # (owner, repo, hook_id) for successful PATCHes — we'll ping these
     for owner, repo, hook_id, _old, new_url in updates:
         code, resp = _api(
             "PATCH",
@@ -176,14 +177,37 @@ def main():
         )
         if 200 <= code < 300:
             ok_count += 1
+            patched.append((owner, repo, hook_id))
             print(f"  [ok] {owner}/{repo} hook {hook_id}")
         else:
             msg = resp.get("message") if isinstance(resp, dict) else str(resp)
             errors.append(f"{owner}/{repo} hook {hook_id}: PATCH → {code} {msg}")
             print(f"  [fail] {owner}/{repo} hook {hook_id}: {code} {msg}")
 
+    # Ping each updated webhook to confirm it reaches the new URL.
+    # GitHub accepts POST /hooks/{id}/pings and returns 204 immediately, then
+    # fires an async `ping` event. Our webhook handler records the ping in
+    # webhook_seen, which powers the registry's "Auto-deploy active" indicator.
+    if patched:
+        print()
+        print(f"Pinging {len(patched)} updated webhook(s) to verify delivery...")
+        for owner, repo, hook_id in patched:
+            code, resp = _api(
+                "POST",
+                f"/repos/{owner}/{repo}/hooks/{hook_id}/pings",
+                token,
+            )
+            if 200 <= code < 300:
+                print(f"  [ping] {owner}/{repo} hook {hook_id} → {code}")
+            else:
+                msg = resp.get("message") if isinstance(resp, dict) else str(resp)
+                print(f"  [ping-fail] {owner}/{repo} hook {hook_id}: {code} {msg}")
+                errors.append(f"{owner}/{repo} hook {hook_id}: ping → {code} {msg}")
+
     print()
     print(f"Updated {ok_count}/{len(updates)}")
+    if patched:
+        print(f"Check the registry UI — every app should show 'Auto-deploy active' within a few seconds.")
     for e in errors:
         print(f"  error: {e}")
     sys.exit(0 if ok_count == len(updates) and not errors else 1)
