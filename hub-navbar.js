@@ -48,6 +48,8 @@
     ".hub-app-item.active .hub-app-icon{background:rgba(79,143,247,0.15)}",
     ".hub-app-item:hover .hub-app-icon{background:#2a2e3b}",
     ".hub-app-label{font-size:11px;text-align:center;line-height:1.3;font-weight:500}",
+    ".hub-app-item.dragging{opacity:0.3;transform:scale(0.9)}",
+    ".hub-app-item.drag-over{background:#222635;box-shadow:inset 0 0 0 2px #4f8ff7;border-radius:8px}",
 
     // Footer
     ".hub-dropdown-footer{padding:12px 20px;border-top:1px solid #2a2e3b;display:flex;justify-content:center}",
@@ -153,24 +155,86 @@
 
       // Build app grid — only show apps user has permission for
       var grid = document.getElementById("hubAppGrid");
-      var html = "";
       function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
-      // Always show launcher
-      html += '<a class="hub-app-item" href="/launcher">' +
+      // Filter to permitted apps
+      var permitted = [];
+      for (var i = 0; i < allApps.length; i++) {
+        if (perms.indexOf(allApps[i].slug) !== -1) permitted.push(allApps[i]);
+      }
+
+      // Apply saved order from localStorage
+      var savedOrder = [];
+      try { savedOrder = JSON.parse(localStorage.getItem("hub-navbar-order") || "[]"); } catch(e) {}
+      if (savedOrder.length > 0) {
+        permitted.sort(function(a, b) {
+          var ai = savedOrder.indexOf(a.slug), bi = savedOrder.indexOf(b.slug);
+          if (ai === -1) ai = 999;
+          if (bi === -1) bi = 999;
+          return ai - bi;
+        });
+      }
+
+      // Render
+      var html = '<a class="hub-app-item" href="/launcher">' +
         '<div class="hub-app-icon">\ud83c\udfe0</div>' +
         '<div class="hub-app-label">Home</div></a>';
 
-      for (var i = 0; i < allApps.length; i++) {
-        var app = allApps[i];
-        if (perms.indexOf(app.slug) === -1) continue;
+      for (var i = 0; i < permitted.length; i++) {
+        var app = permitted[i];
         var active = app.slug === currentSlug ? " active" : "";
-        html += '<a class="hub-app-item' + active + '" href="' + esc(app.url) + '">' +
+        html += '<a class="hub-app-item' + active + '" draggable="true" data-slug="' + esc(app.slug) + '" href="' + esc(app.url) + '">' +
           '<div class="hub-app-icon">' + app.icon + '</div>' +
           '<div class="hub-app-label">' + esc(app.name) + '</div></a>';
       }
 
       grid.innerHTML = html;
+
+      // Drag-and-drop reordering
+      var dragEl = null;
+      grid.addEventListener("dragstart", function(e) {
+        var item = e.target.closest(".hub-app-item[data-slug]");
+        if (!item) return;
+        dragEl = item;
+        item.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+      });
+      grid.addEventListener("dragend", function(e) {
+        if (dragEl) dragEl.classList.remove("dragging");
+        grid.querySelectorAll(".drag-over").forEach(function(el) { el.classList.remove("drag-over"); });
+        dragEl = null;
+      });
+      grid.addEventListener("dragover", function(e) {
+        e.preventDefault();
+        var item = e.target.closest(".hub-app-item[data-slug]");
+        if (!item || item === dragEl) return;
+        grid.querySelectorAll(".drag-over").forEach(function(el) { el.classList.remove("drag-over"); });
+        item.classList.add("drag-over");
+      });
+      grid.addEventListener("dragleave", function(e) {
+        var item = e.target.closest(".hub-app-item");
+        if (item) item.classList.remove("drag-over");
+      });
+      grid.addEventListener("drop", function(e) {
+        e.preventDefault();
+        var target = e.target.closest(".hub-app-item[data-slug]");
+        if (!target || !dragEl || target === dragEl) return;
+        target.classList.remove("drag-over");
+        var items = Array.from(grid.querySelectorAll(".hub-app-item[data-slug]"));
+        var dragIdx = items.indexOf(dragEl);
+        var dropIdx = items.indexOf(target);
+        if (dragIdx < dropIdx) {
+          grid.insertBefore(dragEl, target.nextSibling);
+        } else {
+          grid.insertBefore(dragEl, target);
+        }
+        var newOrder = Array.from(grid.querySelectorAll(".hub-app-item[data-slug]")).map(function(el) { return el.dataset.slug; });
+        try { localStorage.setItem("hub-navbar-order", JSON.stringify(newOrder)); } catch(e) {}
+      });
+      // Prevent navigation on drag
+      grid.addEventListener("click", function(e) {
+        if (e.target.closest(".hub-app-item.dragging")) e.preventDefault();
+      });
     })
     .catch(function() {});
 
