@@ -236,9 +236,11 @@
     /* Remove user button */
     .remove-btn {
       background: none; border: none; color: var(--text-dim); cursor: pointer;
-      font-size: 14px; padding: 2px 6px; border-radius: 4px; transition: all 0.15s;
+      font-size: 13px; padding: 2px 6px; border-radius: 4px; transition: all 0.15s;
+      opacity: 0; margin-left: 6px; vertical-align: middle;
     }
-    .remove-btn:hover { color: var(--red); background: var(--red-dim); }
+    tr:hover .remove-btn { opacity: 1; }
+    .remove-btn:hover { color: #ef4444; background: rgba(239, 68, 68, 0.12); }
     .source-badge {
       font-size: 9px; padding: 2px 6px; border-radius: 8px;
       background: rgba(79,143,247,0.1); color: var(--accent); font-weight: 600;
@@ -1200,6 +1202,13 @@ function render() {
     return true;
   });
 
+  // Alphabetical sort by last name, then first name
+  filtered.sort(function(a, b) {
+    var aName = ((a.last_name || "") + " " + (a.first_name || "")).toLowerCase();
+    var bName = ((b.last_name || "") + " " + (b.first_name || "")).toLowerCase();
+    return aName < bName ? -1 : aName > bName ? 1 : 0;
+  });
+
   const tbody = document.getElementById("tableBody");
 
   if (filtered.length === 0) {
@@ -1221,13 +1230,11 @@ function render() {
     }).join("");
 
     var sourceBadge = u.source === "custom" ? '<span class="source-badge">manual</span>' : '';
-    var removeBtn = u.source === "custom"
-      ? '<button class="remove-btn" title="Remove user" onclick="removeUser(\'' + u.email.replace(/'/g, "\\'") + '\')">&times;</button>'
-      : '';
+    var deleteBtn = '<button class="remove-btn" title="Delete user and revoke all permissions" onclick="deleteUser(\'' + u.email.replace(/'/g, "\\'") + '\', \'' + (u.first_name + ' ' + u.last_name).replace(/'/g, "\\'") + '\')">&times;</button>';
 
     return '<tr>' +
       '<td><div class="user-cell">' +
-        '<div class="user-name">' + u.first_name + ' ' + u.last_name + sourceBadge + removeBtn + '</div>' +
+        '<div class="user-name">' + u.first_name + ' ' + u.last_name + sourceBadge + deleteBtn + '</div>' +
         '<div class="user-email">' + u.email + '</div>' +
       '</div></td>' +
       '<td><div class="user-roles">' + roles + '</div></td>' +
@@ -1419,6 +1426,32 @@ async function removeUser(email) {
   });
 
   showToast("User removed: " + email);
+  loadData();
+}
+
+async function deleteUser(email, name) {
+  if (!confirm("Delete " + name + " (" + email + ")?\n\nThis will revoke ALL their app permissions.")) return;
+
+  // Revoke all permissions for this user
+  var user = DATA.users.find(u => u.email === email);
+  if (user && user.permissions.length > 0) {
+    await fetch("/admin/api/bulk", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        actions: user.permissions.map(slug => ({ email: email, app_slug: slug, action: "revoke" }))
+      }),
+    });
+  }
+
+  // Also try to remove if custom user
+  await fetch("/admin/api/remove-user", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ email: email }),
+  }).catch(function() {});
+
+  showToast("Deleted " + name + " — all permissions revoked");
   loadData();
 }
 
