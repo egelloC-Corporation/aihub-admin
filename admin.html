@@ -943,23 +943,14 @@ Quick reference for the path prefix problem (step 6): the app will be served at 
           <textarea id="appDesc" placeholder="What does this app do? This shows on the launcher page."></textarea>
         </div>
         <div class="form-group">
-          <label>Local Port
-            <span class="tooltip-wrap">
-              <span class="tooltip-icon">?</span>
-              <span class="tooltip-bubble">The port your app's server listens on (1024–65535). Check your startup file for <code>app.listen()</code> or <code>app.run()</code>.<span class="claude-prompt" onclick="navigator.clipboard.writeText(this.innerText.replace('Ask Claude:\n',''))">What port does my app listen on? Check server.js, app.py, or similar entry points. Reply with just the number.</span></span>
-            </span>
+          <label style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="appIsStreamlit" style="width:16px;height:16px;">
+            <span>This is a Streamlit app</span>
           </label>
-          <input type="number" id="appPort" placeholder="3000" min="1024" max="65535">
+          <div class="hint">Check this if your app uses Streamlit. A WebSocket port will be assigned automatically.</div>
         </div>
-        <div class="form-group">
-          <label>Streamlit WebSocket Port <span style="color:var(--text-muted);font-weight:400;">(optional)</span>
-            <span class="tooltip-wrap">
-              <span class="tooltip-icon">?</span>
-              <span class="tooltip-bubble">For Streamlit apps only. The port where Streamlit serves its WebSocket (usually <code>8501</code>). Leave blank for non-Streamlit apps. The container must bind this port, and the Nginx route must proxy <code>/_stcore/stream</code> to this host port.</span>
-            </span>
-          </label>
-          <input type="number" id="appStreamlitPort" placeholder="8501 (Streamlit only)" min="1024" max="65535">
-        </div>
+        <input type="hidden" id="appPort" value="">
+        <input type="hidden" id="appStreamlitPort" value="">
         <div class="form-group">
           <label>Git Repository URL</label>
           <input type="text" id="appRepoUrl" placeholder="https://github.com/org/my-app.git">
@@ -1986,9 +1977,8 @@ async function submitApp() {
   var slug = document.getElementById("appSlug").value.trim().toLowerCase();
   var name = document.getElementById("appName").value.trim();
   var desc = document.getElementById("appDesc").value.trim();
-  var port = document.getElementById("appPort").value.trim();
-  var streamlitPort = document.getElementById("appStreamlitPort").value.trim();
   var icon = document.getElementById("appIcon").value.trim();
+  var isStreamlit = document.getElementById("appIsStreamlit").checked;
   var repoUrl = document.getElementById("appRepoUrl").value.trim();
   var envKeys = document.getElementById("appEnvKeys").value.trim();
   var errEl = document.getElementById("submitError");
@@ -1998,8 +1988,8 @@ async function submitApp() {
   errEl.style.display = "none";
   successEl.style.display = "none";
 
-  if (!slug || !name || !port) {
-    errEl.textContent = "Slug, name, and port are required.";
+  if (!slug || !name) {
+    errEl.textContent = "Slug and name are required.";
     errEl.style.display = "block";
     return;
   }
@@ -2007,26 +1997,6 @@ async function submitApp() {
     errEl.textContent = "Slug must be lowercase letters, numbers, hyphens. Start with a letter, 2-31 chars.";
     errEl.style.display = "block";
     return;
-  }
-  var portNum = parseInt(port);
-  if (isNaN(portNum) || portNum < 1024 || portNum > 65535) {
-    errEl.textContent = "Port must be between 1024 and 65535.";
-    errEl.style.display = "block";
-    return;
-  }
-  var streamlitPortNum = null;
-  if (streamlitPort) {
-    streamlitPortNum = parseInt(streamlitPort);
-    if (isNaN(streamlitPortNum) || streamlitPortNum < 1024 || streamlitPortNum > 65535) {
-      errEl.textContent = "Streamlit WebSocket Port must be between 1024 and 65535.";
-      errEl.style.display = "block";
-      return;
-    }
-    if (streamlitPortNum === portNum) {
-      errEl.textContent = "Streamlit WebSocket Port must differ from Local Port.";
-      errEl.style.display = "block";
-      return;
-    }
   }
 
   btn.disabled = true;
@@ -2036,7 +2006,7 @@ async function submitApp() {
     var resp = await fetch("/admin/api/apps/submit", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ slug: slug, name: name, description: desc, icon: icon, port: portNum, streamlit_port: streamlitPortNum, repo_url: repoUrl, env_keys: envKeys }),
+      body: JSON.stringify({ slug: slug, name: name, description: desc, icon: icon, is_streamlit: isStreamlit, repo_url: repoUrl, env_keys: envKeys }),
     });
     var data = await resp.json();
 

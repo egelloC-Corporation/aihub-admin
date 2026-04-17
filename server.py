@@ -574,6 +574,39 @@ def admin_bulk():
 
 import re
 
+
+def _auto_assign_port(is_streamlit=False):
+    """Find the next available port starting from 4000 for regular apps.
+
+    Checks both Docker containers and host-level listeners (via the deploy
+    service validate endpoint). Also checks existing submissions so two
+    pending apps don't get the same port.
+    """
+    # Collect all ports already in use or reserved
+    used = set()
+
+    # From existing submissions (pending, approved, live)
+    for s in get_all_submissions():
+        if s.get("port"):
+            used.add(int(s["port"]))
+        if s.get("streamlit_port"):
+            used.add(int(s["streamlit_port"]))
+
+    # Well-known platform ports
+    used.update({80, 443, 3000, 3004, 5051, 5052, 5432, 6001, 8000, 8888})
+
+    start = 4000
+    for candidate in range(start, 9000):
+        if candidate not in used:
+            if is_streamlit:
+                # Need two consecutive ports: app + websocket
+                if candidate + 1 not in used:
+                    return candidate, candidate + 1
+            else:
+                return candidate, None
+    return None, None
+
+
 @app.route("/admin/api/apps/submit", methods=["POST"])
 @login_required
 def api_submit_app():
@@ -585,21 +618,28 @@ def api_submit_app():
     icon = (body.get("icon") or "").strip()
     port = body.get("port")
     streamlit_port = body.get("streamlit_port")
+    is_streamlit = body.get("is_streamlit", False)
     repo_url = (body.get("repo_url") or "").strip()
     env_keys = (body.get("env_keys") or "").strip()
 
-    if not slug or not name or not port:
-        return jsonify({"error": "slug, name, and port are required"}), 400
+    if not slug or not name:
+        return jsonify({"error": "slug and name are required"}), 400
     if not repo_url:
         return jsonify({"error": "Git repository URL is required for deployment"}), 400
+
+    # Auto-assign port if not provided
+    if not port:
+        port, auto_streamlit = _auto_assign_port(is_streamlit=is_streamlit)
+        if port is None:
+            return jsonify({"error": "Could not find an available port"}), 500
+        if is_streamlit and not streamlit_port:
+            streamlit_port = auto_streamlit
 
     # Auto-detect subdirectory from GitHub tree URLs
     # e.g. https://github.com/org/repo/tree/main/my-app → repo=org/repo.git, subdir=my-app
     tree_match = re.match(r"https://github\.com/([^/]+/[^/]+)/tree/[^/]+/(.+?)/?$", repo_url)
     if tree_match:
         repo_url = f"https://github.com/{tree_match.group(1)}.git"
-        # Store subdirectory in env_keys as a special prefix (parsed by deploy)
-        # We'll pass it separately via the deploy API
         repo_subdir = tree_match.group(2)
     else:
         repo_subdir = None
@@ -615,8 +655,7 @@ def api_submit_app():
     except (ValueError, TypeError):
         return jsonify({"error": "Port must be a number between 1024 and 65535"}), 400
 
-    # Optional streamlit_port: second host port for Streamlit apps' WebSocket.
-    # Must be distinct from `port` and in the same range. None/empty = not a Streamlit app.
+    # Optional streamlit_port
     if streamlit_port not in (None, "", 0, "0"):
         try:
             streamlit_port = int(streamlit_port)
