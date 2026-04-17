@@ -241,6 +241,13 @@
     }
     tr:hover .remove-btn { opacity: 1; }
     .remove-btn:hover { color: #ef4444; background: rgba(239, 68, 68, 0.12); }
+    .editable-name { cursor: pointer; border-bottom: 1px dashed transparent; transition: border-color 0.15s; }
+    .editable-name:hover { border-bottom-color: var(--accent); }
+    .name-edit-input {
+      background: var(--bg); border: 1px solid var(--accent); color: var(--text);
+      padding: 2px 6px; border-radius: 4px; font-size: 13px; font-family: inherit;
+      width: 120px; outline: none;
+    }
     .source-badge {
       font-size: 9px; padding: 2px 6px; border-radius: 8px;
       background: rgba(79,143,247,0.1); color: var(--accent); font-weight: 600;
@@ -1232,9 +1239,13 @@ function render() {
     var sourceBadge = u.source === "custom" ? '<span class="source-badge">manual</span>' : '';
     var deleteBtn = '<button class="remove-btn" title="Delete user and revoke all permissions" onclick="deleteUser(\'' + u.email.replace(/'/g, "\\'") + '\', \'' + (u.first_name + ' ' + u.last_name).replace(/'/g, "\\'") + '\')">&times;</button>';
 
+    var editedBadge = u.name_edited ? '<span class="source-badge" style="background:rgba(79,143,247,0.15);color:#4f8ff7;">edited</span>' : '';
+    var nameDisplay = esc(u.first_name + ' ' + u.last_name);
+    var nameEl = '<span class="editable-name" title="Click to rename" onclick="editName(\'' + u.email.replace(/'/g, "\\'") + '\', \'' + esc(u.first_name).replace(/'/g, "\\'") + '\', \'' + esc(u.last_name).replace(/'/g, "\\'") + '\')">' + nameDisplay + '</span>';
+
     return '<tr>' +
       '<td><div class="user-cell">' +
-        '<div class="user-name">' + u.first_name + ' ' + u.last_name + sourceBadge + deleteBtn + '</div>' +
+        '<div class="user-name">' + nameEl + editedBadge + sourceBadge + deleteBtn + '</div>' +
         '<div class="user-email">' + u.email + '</div>' +
       '</div></td>' +
       '<td><div class="user-roles">' + roles + '</div></td>' +
@@ -1453,6 +1464,30 @@ async function deleteUser(email, name) {
 
   showToast("Deleted " + name + " — all permissions revoked");
   loadData();
+}
+
+function editName(email, currentFirst, currentLast) {
+  var newName = prompt("Edit name for " + email + ":", currentFirst + " " + currentLast);
+  if (newName === null) return;
+  newName = newName.trim();
+  if (!newName) return;
+
+  var parts = newName.split(/\s+/);
+  var firstName = parts[0];
+  var lastName = parts.length > 1 ? parts.slice(1).join(" ") : "";
+
+  fetch("/admin/api/users/rename", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ email: email, first_name: firstName, last_name: lastName }),
+  }).then(function(r) {
+    if (r.ok) {
+      showToast("Renamed to " + firstName + " " + lastName);
+      loadData();
+    } else {
+      showToast("Failed to rename user");
+    }
+  });
 }
 
 // Close modal on overlay click or Escape

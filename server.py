@@ -477,6 +477,24 @@ def admin_users():
                 "source": "custom",
             })
 
+    # Apply name overrides from user_labels table
+    from permissions import get_db as _get_pdb
+    pconn = _get_pdb()
+    try:
+        labels = {row["email"].lower(): row for row in
+                  pconn.execute("SELECT email, first_name, last_name FROM user_labels").fetchall()}
+    except Exception:
+        labels = {}
+    finally:
+        pconn.close()
+
+    for u in users:
+        override = labels.get(u["email"].lower())
+        if override:
+            u["first_name"] = override["first_name"]
+            u["last_name"] = override["last_name"]
+            u["name_edited"] = True
+
     return jsonify({"users": users, "apps": apps})
 
 
@@ -846,6 +864,35 @@ def api_webhook_status():
             continue
         results[s["slug"]] = repo_url in _webhook_seen_repos
     return jsonify(results)
+
+
+@app.route("/admin/api/users/rename", methods=["POST"])
+@admin_required
+def api_rename_user():
+    """Override the display name for a user. Stored in user_labels table."""
+    body = request.get_json()
+    email = (body.get("email") or "").strip().lower()
+    first_name = (body.get("first_name") or "").strip()
+    last_name = (body.get("last_name") or "").strip()
+
+    if not email or not first_name or not last_name:
+        return jsonify({"error": "email, first_name, and last_name are required"}), 400
+
+    from permissions import get_db as _get_pdb
+    conn = _get_pdb()
+    conn.execute(
+        """INSERT INTO user_labels (email, first_name, last_name, updated_by)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(email) DO UPDATE SET
+             first_name = excluded.first_name,
+             last_name = excluded.last_name,
+             updated_by = excluded.updated_by,
+             updated_at = datetime('now')""",
+        (email, first_name, last_name, session["user"]["email"]),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
 
 
 @app.route("/admin/api/apps/status", methods=["POST"])
