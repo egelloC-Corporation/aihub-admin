@@ -783,61 +783,101 @@
             <span>Paste this into Claude from your project folder</span>
             <span class="copy-hint" id="copyHint">Click to copy</span>
           </div>
-          <div class="prompt-text" id="claudePrompt">I need to connect my app to AI Hub SSO so it can be deployed at aihub.egelloc.com.
+          <div class="prompt-text" id="claudePrompt">I need to deploy my app on AI Hub at aihub.egelloc.com. The platform handles SSO, port assignment, and deployment automatically. Walk me through the setup.
 
-Grab the auth SDK from https://github.com/egelloc-corporation/aihub-admin/tree/main/auth-sdk — use aihub-auth.js (Node) or aihub_auth.py (Python, needs `requests` package). Add it to my project.
+## Platform info
+- Apps are served at aihub.egelloc.com/APP_SLUG/ behind a reverse proxy (nginx). The proxy strips the /APP_SLUG prefix before forwarding to the container, so the app sees root-relative paths (/, /api/..., etc.).
+- Auth is handled by the platform's Google OAuth SSO. Apps verify sessions by calling AIHUB_AUTH_URL (set at runtime, reads the platform session cookie).
+- Ports are auto-assigned — I do NOT need to pick one. The deploy system assigns a free port and sets the PORT env var.
+- After approval, every push to the GitHub main branch auto-deploys.
 
-Then:
-1. Wire the auth middleware into my app's routes (loginRequired for general auth, requirePermission("APP_SLUG") for app-specific access)
-2. Add a /health endpoint that returns { "status": "ok" } if one doesn't exist
-3. If my app serves HTML pages, add this script tag before the closing body tag on every page:
+## What I need you to do
+
+1. Add the auth SDK from https://github.com/egelloc-corporation/aihub-admin/tree/main/auth-sdk — use aihub-auth.js (Node) or aihub_auth.py (Python, needs `requests`). Wire it into my routes:
+   - loginRequired for general auth
+   - requirePermission("APP_SLUG") for app-specific access
+   - The SDK reads AIHUB_AUTH_URL from the environment at runtime. Do NOT bake AIHUB_AUTH_URL into build-time config (e.g. next.config.ts env{}) — it will be empty during docker build and override the real runtime value.
+
+2. Add a /health endpoint that returns { "status": "ok" }
+
+3. If my app serves HTML, add this before &lt;/body&gt; on every page:
    &lt;script src="/hub-navbar.js" defer&gt;&lt;/script&gt;
-   This adds the AI Hub app switcher (waffle icon) and user menu to every page. It loads from the platform, not your app.
-4. Add a Dockerfile to the root of my app (or the subfolder if using a monorepo). This is REQUIRED for deployment. Example for Python:
+   This loads the AI Hub app switcher from the platform.
+
+4. CRITICAL — handle the path prefix. The app is served at /APP_SLUG/ but receives requests at / (nginx strips the prefix). The fix depends on the stack:
+
+   Flask / Jinja / vanilla HTML:
+   - Use RELATIVE paths in templates: href="static/css/style.css" NOT href="/static/css/style.css"
+   - Use RELATIVE fetch paths in JS: fetch("api/stats") NOT fetch("/api/stats")
+   - Any URL starting with "/" bypasses the app and hits the platform admin panel
+
+   Next.js:
+   - Set basePath in next.config.ts reading from APP_SLUG env var: basePath: process.env.APP_SLUG ? `/${process.env.APP_SLUG}` : undefined
+   - basePath MUST be set at build time via --build-arg APP_SLUG (the deploy system does this automatically)
+   - Do NOT put AIHUB_AUTH_URL, AIHUB_LOGIN_URL, or other server-side env vars in next.config.ts env{} — that block bakes values at build time, but these vars are only available at container runtime. Server-side code reads process.env directly.
+   - next.config.ts env{} should ONLY contain NEXT_PUBLIC_* values and APP_SLUG
+   - For Prisma apps: COPY prisma/ BEFORE npm ci in the Dockerfile (postinstall runs prisma generate which needs the schema). Do this in BOTH the deps and runner stages.
+   - Include an initial migration that creates all tables (prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script). Without it, fresh deploys fail because ALTER TABLE runs before CREATE TABLE.
+   - If using @sparticuz/chromium or Puppeteer for PDF generation, the Dockerfile runner stage needs system libs: libgbm1 libnss3 libgtk-3-0 libatk-bridge2.0-0 fonts-liberation and related deps.
+
+   Express / FastAPI:
+   - Mount routes at the root (/) — nginx handles the prefix
+   - Use relative asset paths in HTML
+
+   Streamlit:
+   - No changes needed — the platform auth proxy handles everything
+   - Check the "This is a Streamlit app" box when submitting
+
+5. Make sure the app listens on the PORT environment variable (not hardcoded) and binds to 0.0.0.0
+
+6. Add a Dockerfile. REQUIRED for deployment. Examples:
+   Python:
    FROM python:3.12-slim
    WORKDIR /app
    COPY requirements.txt ./
    RUN pip install --no-cache-dir -r requirements.txt
    COPY . .
    CMD ["python", "server.py"]
-   Example for Node.js:
+
+   Node.js:
    FROM node:20-alpine
    WORKDIR /app
    COPY package.json ./
    RUN npm install --omit=dev
    COPY . .
    CMD ["node", "server.js"]
-   Make sure the CMD matches my actual entry point file and the Dockerfile installs all dependencies
-5. Make sure my app listens on the PORT environment variable (not a hardcoded port) and binds to 0.0.0.0
-6. CRITICAL — handle the path prefix. Apps are served at aihub.egelloc.com/APP_SLUG/, NOT at the root. Every asset, API call, and internal link must use the APP_SLUG prefix or my app will render with broken styling and broken data fetches. Concretely:
-   - Flask / Jinja templates: use RELATIVE paths — href="static/css/style.css" and src="static/js/app.js" (NO leading slash). The browser resolves these from the current /APP_SLUG/ URL.
-   - Flask JS fetch() calls: same thing — fetch("api/stats") not fetch("/api/stats").
-   - Next.js: add basePath: "/APP_SLUG" to next.config.ts — this makes Next generate correct asset and link URLs automatically. Ask me for my slug first.
-   - Express / FastAPI: mount the router under the APP_SLUG prefix, or use relative asset paths in your HTML.
-   - Streamlit: no change needed — the platform auth proxy handles this.
-7. If my app needs a database, tell me which one. The deploy system passes env vars for TWO databases:
-   - DB_HOST, DB_USER, DB_PASSWORD — the Nest MySQL database (student / coaching data).
-   - ACQ_DB_HOST, ACQ_DB_USER, ACQ_DB_PASSWORD — the Acquisition PostgreSQL database (sales / marketing / audit logs).
-   Read the right vars in my code. Do NOT hardcode credentials, and do NOT generic-read "DB_HOST" if I need Acquisition — read "ACQ_DB_HOST" explicitly so I get the right DB automatically.
-8. Create or update my .env.example with these keys:
-   - APP_SLUG (my app's slug, lowercase, no spaces)
-   - AIHUB_DEV_EMAIL (set to my email so auth works locally without SSO)
-   - PORT (the port my app listens on)
-9. Make sure the app starts cleanly and test that protected routes return user info
-10. Push my code to a GitHub repo under the egelloc-corporation org (private repos are fine — the deploy system has access)
-11. When done, tell me exactly what to fill in for the AI Hub registration form:
-   - App slug
-   - Port number
-   - Git repo URL (required — must be an HTTPS clone URL under the egelloc-corporation org)
-   - An emoji icon for the app launcher
-   - A short description (shown on the launcher page)
-   - List of environment variable keys my app needs
 
-Note: If you're updating an existing app, just resubmit with the same slug — it will go through the approval flow again as an update.
+   Make sure CMD matches your entry point and the Dockerfile installs ALL dependencies.
 
-Quick reference for the path prefix problem (step 6): the app will be served at aihub.egelloc.com/APP_SLUG/. Any asset URL, fetch() call, or link in my HTML that starts with "/" bypasses that prefix and hits the admin panel instead — which is why dashboards show up unstyled with no data. Fix this in step 6 before submitting or the first deploy will look broken.</div>
+7. If the app needs a database:
+   - The platform auto-provisions a scoped PostgreSQL user per app (full CRUD + DDL for migrations). The DATABASE_URL env var is set automatically — Prisma, SQLAlchemy, etc. read it out of the box.
+   - If you need the shared Nest MySQL (student data): read DB_HOST, DB_USER, DB_PASSWORD
+   - If you need the shared Acquisition PostgreSQL (sales/marketing/audit): read ACQ_DB_HOST, ACQ_DB_USER, ACQ_DB_PASSWORD EXPLICITLY — do NOT use generic "DB_HOST" or you'll connect to the wrong database.
+   - NEVER hardcode credentials. NEVER put database URLs in next.config.ts env{}.
+
+8. Create .env.example with:
+   APP_SLUG=my-app
+   AIHUB_DEV_EMAIL=your-email@egelloc.com
+   PORT=3000
+
+9. Push to a GitHub repo under egelloc-corporation org (private is fine — deploy system has access)
+
+10. Add a GitHub webhook for auto-deploy after approval:
+    Repo → Settings → Webhooks → Add webhook
+    Payload URL: https://aihub.egelloc.com/webhook/github
+    Content type: application/json
+    Secret: ask an admin
+    Events: just push
+
+11. When done, tell me what to fill in the registration form:
+   - App slug (lowercase, no spaces — used in URL)
+   - App name + emoji icon
+   - Short description
+   - Git repo URL (HTTPS clone URL)
+   - Whether it's a Streamlit app
+   - List of environment variable KEYS the app needs (not values)</div>
         </div>
-        <div class="after-prompt">Claude will adapt the auth to whatever stack you're using (Express, Flask, FastAPI, etc.) and tell you what to put in each field below.</div>
+        <div class="after-prompt">Claude will adapt to your stack (Flask, Next.js, Express, Streamlit, etc.) and tell you exactly what to fill in below. Ports are assigned automatically — you don't need to pick one.</div>
       </div>
     </div>
 
