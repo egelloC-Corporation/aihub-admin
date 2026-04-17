@@ -118,22 +118,68 @@ def log_event(event_type, action, **kwargs):
         pass  # Drop rather than block the request
 
 
+# Build known slugs from the app registry so new apps are tracked automatically.
+# Falls back to a static set if the DB isn't available yet at startup.
+_known_slugs = {"briefer", "knowledge", "admin", "launcher"}
+_known_slugs_loaded = False
+
+
+def _load_known_slugs():
+    """Populate known_slugs from app_submissions (live/approved apps)."""
+    global _known_slugs, _known_slugs_loaded
+    try:
+        for s in get_all_submissions():
+            if s.get("status") in ("live", "approved"):
+                _known_slugs.add(s["slug"])
+        _known_slugs_loaded = True
+    except Exception:
+        pass  # DB not ready — use static fallback
+
+
 @app.after_request
 def audit_log_request(response):
-    """Log every authenticated request to the incubator_logs table."""
-    skip = ("/static", "/health", "/hub-navbar.js", "/favicon", "/auth/me")
-    if any(request.path.startswith(p) for p in skip):
-        return response
+    """Log every authenticated request to the incubator_logs table.
+
+    For requests that go directly to deployed apps (bypassing Flask),
+    we capture the Referer header from /auth/me calls — hub-navbar.js
+    calls /auth/me on every page load across ALL apps, so parsing the
+    Referer gives us coverage for apps routed directly by nginx.
+    """
+    global _known_slugs_loaded
+    if not _known_slugs_loaded:
+        _load_known_slugs()
 
     user = session.get("user")
     if not user:
         return response
 
+    # For /auth/me requests, extract the app from Referer instead of
+    # skipping — this is the only signal we get for nginx-direct apps.
+    if request.path == "/auth/me":
+        referer = request.headers.get("Referer", "")
+        ref_parts = [p for p in referer.split("/") if p]
+        # Referer looks like "https://aihub.egelloc.com/sales-kpi/..."
+        # After split: ['https:', 'aihub.egelloc.com', 'sales-kpi', ...]
+        ref_slug = ref_parts[2] if len(ref_parts) > 2 else None
+        if ref_slug in _known_slugs:
+            log_event(
+                "app_access",
+                f"page_view {referer}",
+                user_email=user.get("email"),
+                user_name=user.get("name"),
+                app_slug=ref_slug,
+                ip_address=request.headers.get("X-Forwarded-For", request.remote_addr),
+                user_agent=request.headers.get("User-Agent"),
+            )
+        return response
+
+    skip = ("/static", "/health", "/hub-navbar.js", "/favicon")
+    if any(request.path.startswith(p) for p in skip):
+        return response
+
     # Extract app slug from /{slug}/ routes
     parts = [p for p in request.path.strip("/").split("/") if p]
-    known_slugs = {"briefer", "knowledge", "admin", "sales-kpi",
-                   "marketing-dashboard", "acquisition-logs", "launcher"}
-    app_slug = parts[0] if parts and parts[0] in known_slugs else None
+    app_slug = parts[0] if parts and parts[0] in _known_slugs else None
 
     log_event(
         "app_access",
