@@ -1,4 +1,4 @@
--- AI Hub shared Postgres — initial setup
+-- Incubator shared Postgres — initial setup
 -- Locks down the public schema so app users can only access their own schema.
 
 -- Revoke default public access

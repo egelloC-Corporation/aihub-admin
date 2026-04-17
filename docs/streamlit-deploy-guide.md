@@ -1,6 +1,6 @@
-# Deploying a Streamlit App to AI Hub
+# Deploying a Streamlit App to Incubator
 
-This documents every issue encountered deploying a Streamlit dashboard (behind a Flask auth proxy) to the AI Hub platform, and the fixes required. Use this as a reference for any future Streamlit app deployments.
+This documents every issue encountered deploying a Streamlit dashboard (behind a Flask auth proxy) to the Incubator platform, and the fixes required. Use this as a reference for any future Streamlit app deployments.
 
 ## Architecture
 
@@ -65,7 +65,7 @@ app = Flask(__name__, static_folder=None)
 
 ### 4. Navbar injection fails on gzipped responses
 
-**Error:** The AI Hub app drawer (waffle menu) doesn't appear.
+**Error:** The Incubator app drawer (waffle menu) doesn't appear.
 
 **Cause:** The Flask proxy injects `<script src="/hub-navbar.js">` by finding `</body>` in the response body. But when the browser sends `Accept-Encoding: gzip`, Streamlit returns compressed HTML and the `</body>` string isn't found in the gzipped bytes.
 
@@ -174,7 +174,7 @@ df['Attended'] = pd.to_numeric(df['Attended'], errors='coerce').fillna(0).astype
 
 ### 7. Navbar doesn't render inside Streamlit
 
-**Error:** The AI Hub app drawer (waffle icon) doesn't appear even though `hub-navbar.js` is injected into the HTML.
+**Error:** The Incubator app drawer (waffle icon) doesn't appear even though `hub-navbar.js` is injected into the HTML.
 
 **Cause:** Streamlit renders inside a React app that replaces the DOM. The injected `<script>` tag runs but the navbar DOM elements get overwritten by React.
 

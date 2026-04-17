@@ -1,11 +1,11 @@
-# AI Hub Admin Panel
+# Incubator Admin Panel
 
 The platform layer for [incubator.egelloc.com](https://incubator.egelloc.com) — authentication, app launcher, permissions, and infrastructure access management.
 
 ## What it does
 
 - **Google OAuth SSO** — restricts access to `@egelloc.com` accounts
-- **App Launcher** — home screen linking to all AI Hub applications
+- **App Launcher** — home screen linking to all Incubator applications
 - **Permissions** — per-user, per-app access control with toggle switches
 - **Infrastructure Access** — SSH key management, database user creation, network access (trusted IPs)
 - **Coaching Briefer API** — AMA streaming, ClickUp integration, student context pre-caching

@@ -50,7 +50,7 @@ Delete this file after the migration is complete.
 **Where:** DMs or targeted messages to anyone who owns docs, Notion pages, saved searches, etc.
 **Tone:** specific, action-oriented
 
-> Quick ask — we renamed the internal AI Hub platform from `aihub.egelloc.com` to `incubator.egelloc.com`. If you've got docs, Notion pages, or saved links pointing at the old domain, please update when you have a minute. The old domain redirects for now but we'll retire it eventually.
+> Quick ask — we renamed the internal Incubator platform from `aihub.egelloc.com` to `incubator.egelloc.com`. If you've got docs, Notion pages, or saved links pointing at the old domain, please update when you have a minute. The old domain redirects for now but we'll retire it eventually.
 >
 > Known places I've already updated: the app registry, the admin panel's setup guides, the repo READMEs. Known places I haven't: Notion, Slack canvases, email templates, personal bookmarks.
 

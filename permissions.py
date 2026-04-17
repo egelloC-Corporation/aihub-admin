@@ -1,5 +1,5 @@
 """
-Permissions system for egelloC AI Hub.
+Permissions system for egelloC Incubator.
 
 Uses SQLite for permissions storage. Pulls user list from MySQL.
 Apps are registered here and permissions are managed via /admin.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Database provisioning for AI Hub apps.
+Database provisioning for Incubator apps.
 
 Creates a scoped Postgres user per app with:
   - Its own schema (app_<name>)
@@ -189,7 +189,7 @@ def create_app_user(app_name, dry_run=False):
         print(f"  Skipping .env write — app has external DB_HOST in {env_path}")
     else:
         db_lines = [
-            f"\n# AI Hub shared database — auto-provisioned\n",
+            f"\n# Incubator shared database — auto-provisioned\n",
             f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?schema={schema}&options=-csearch_path%3D{schema}\n",
             f"DB_USER={db_user}\n",
             f"DB_PASSWORD={password}\n",
@@ -254,7 +254,7 @@ def drop_app_user(app_name, dry_run=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Provision scoped DB users for AI Hub apps")
+    parser = argparse.ArgumentParser(description="Provision scoped DB users for Incubator apps")
     sub = parser.add_subparsers(dest="command", required=True)
 
     create_p = sub.add_parser("create", help="Create a scoped DB user for an app")

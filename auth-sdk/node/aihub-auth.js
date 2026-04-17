@@ -1,7 +1,7 @@
 /**
- * AI Hub Auth SDK — Node.js
+ * Incubator Auth SDK — Node.js
  *
- * Validates requests against AI Hub's SSO.
+ * Validates requests against Incubator's SSO.
  * Works with Express, Fastify, or plain http.
  *
  * In production, forwards the session cookie to the central auth server.
@@ -27,10 +27,10 @@ if (AIHUB_DEV_EMAIL) {
 }
 
 /**
- * Verify the current request against AI Hub SSO.
+ * Verify the current request against Incubator SSO.
  *
  * In dev mode (AIHUB_DEV_EMAIL set), returns a mock user immediately.
- * In production, forwards the session cookie to AI Hub's /auth/me endpoint.
+ * In production, forwards the session cookie to Incubator's /auth/me endpoint.
  *
  * @param {import("http").IncomingMessage} req - HTTP request (needs headers.cookie)
  * @returns {Promise<{email: string, name: string, picture: string, permissions: string[]}|null>}

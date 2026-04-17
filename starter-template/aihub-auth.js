@@ -1,7 +1,7 @@
 /**
- * AI Hub Auth SDK — Node.js
+ * Incubator Auth SDK — Node.js
  *
- * Validates requests against AI Hub's SSO.
+ * Validates requests against Incubator's SSO.
  *
  * In production, forwards the session cookie to the central auth server.
  * For local dev, set AIHUB_DEV_EMAIL in your .env to bypass SSO entirely.

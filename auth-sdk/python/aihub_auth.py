@@ -1,7 +1,7 @@
 """
-AI Hub Auth SDK — Python
+Incubator Auth SDK — Python
 
-Validates requests against AI Hub's SSO.
+Validates requests against Incubator's SSO.
 Works with Flask, FastAPI, or any WSGI/ASGI framework.
 
 In production, forwards the session cookie to the central auth server.
@@ -27,7 +27,7 @@ import requests as http_requests
 
 log = logging.getLogger(__name__)
 
-# AI Hub auth endpoint — override with AIHUB_AUTH_URL for local dev
+# Incubator auth endpoint — override with AIHUB_AUTH_URL for local dev
 AIHUB_AUTH_URL = os.environ.get("AIHUB_AUTH_URL", "http://localhost:5051/auth/me")
 AIHUB_DEV_EMAIL = os.environ.get("AIHUB_DEV_EMAIL", "")
 
@@ -37,10 +37,10 @@ if AIHUB_DEV_EMAIL:
 
 def verify_user(request):
     """
-    Verify the current request against AI Hub SSO.
+    Verify the current request against Incubator SSO.
 
     In dev mode (AIHUB_DEV_EMAIL set), returns a mock user immediately.
-    In production, forwards the session cookie to AI Hub's /auth/me endpoint.
+    In production, forwards the session cookie to Incubator's /auth/me endpoint.
 
     Args:
         request: A Flask/Werkzeug request object (needs request.cookies).

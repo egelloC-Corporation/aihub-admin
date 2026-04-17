@@ -1,6 +1,6 @@
 # Incubator Logs — Setup Instructions
 
-Audit log system that tracks every authenticated request across AI Hub.
+Audit log system that tracks every authenticated request across Incubator.
 
 ---
 

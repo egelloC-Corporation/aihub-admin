@@ -1,5 +1,5 @@
 """
-AI Hub Deploy Service
+Incubator Deploy Service
 
 Standalone Flask app (port 5001) that handles deploy/undeploy requests
 from the admin panel. Called by server.py when an app submission is approved.
