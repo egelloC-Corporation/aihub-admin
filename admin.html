@@ -3,7 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Permissions — egelloC AI Hub</title>
+  <title>Permissions — egelloC Incubator</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon/32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon/16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/favicon/180.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon/192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/favicon/512.png">
   <style>
     :root {
       --bg: #0f1117;
@@ -809,7 +815,7 @@
     <div class="getting-started" style="cursor:pointer;" onclick="var b=this.querySelector('.getting-started-body');var a=this.querySelector('.getting-started-arrow');if(b.style.display==='none'){b.style.display='block';a.textContent='\u25bc';}else{b.style.display='none';a.textContent='\u25b6';}">
       <div class="getting-started-title" style="display:flex;align-items:center;gap:8px;">
         <span class="getting-started-arrow" style="font-size:12px;color:var(--text-dim);">&#x25b6;</span>
-        New here? Set up your app for AI Hub
+        New here? Set up your app for Incubator
         <span class="badge">Setup guide</span>
       </div>
       <div class="getting-started-body" style="display:none;" onclick="event.stopPropagation();">
@@ -821,7 +827,7 @@
             <span>Paste this into Claude from your project folder</span>
             <span class="copy-hint" id="copyHint">Click to copy</span>
           </div>
-          <div class="prompt-text" id="claudePrompt">I need to deploy my app on AI Hub at incubator.egelloc.com. The platform handles SSO, port assignment, and deployment automatically. Walk me through the setup.
+          <div class="prompt-text" id="claudePrompt">I need to deploy my app on Incubator at incubator.egelloc.com. The platform handles SSO, port assignment, and deployment automatically. Walk me through the setup.
 
 ## Platform info
 - Apps are served at incubator.egelloc.com/APP_SLUG/ behind a reverse proxy (nginx). The proxy strips the /APP_SLUG prefix before forwarding to the container, so the app sees root-relative paths (/, /api/..., etc.).
@@ -840,7 +846,7 @@
 
 3. If my app serves HTML, add this before &lt;/body&gt; on every page:
    &lt;script src="/hub-navbar.js" defer&gt;&lt;/script&gt;
-   This loads the AI Hub app switcher from the platform.
+   This loads the Incubator app switcher from the platform.
 
 4. CRITICAL — handle the path prefix. The app is served at /APP_SLUG/ but receives requests at / (nginx strips the prefix). The fix depends on the stack:
 
@@ -1029,7 +1035,7 @@
       <!-- Register an App form -->
       <div class="registry-card">
         <h3>Register an App</h3>
-        <div class="subtitle">Submit a new app for admin review. Once approved, it will be deployed to AI Hub.</div>
+        <div class="subtitle">Submit a new app for admin review. Once approved, it will be deployed to Incubator.</div>
 
         <div class="form-success" id="submitSuccess">App submitted for review!</div>
 

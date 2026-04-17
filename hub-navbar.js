@@ -1,4 +1,32 @@
 (function() {
+  // ── Platform favicon ──
+  // Inject Incubator favicon links into every app that includes this navbar,
+  // so branding is consistent without per-app changes. Absolute URLs because
+  // apps may be served under path prefixes (/briefer/, /sales-kpi/, etc.).
+  // Remove any pre-existing <link rel="icon"> so the platform icon wins.
+  (function injectFavicon() {
+    var origin = window.location.origin;
+    document.querySelectorAll('link[rel~="icon"], link[rel="apple-touch-icon"], link[rel="apple-touch-icon-precomposed"]').forEach(function(el) {
+      el.parentNode.removeChild(el);
+    });
+    var icons = [
+      { rel: "icon",             type: "image/svg+xml", href: "/favicon.svg" },
+      { rel: "icon",             type: "image/png",     sizes: "32x32",   href: "/favicon/32.png" },
+      { rel: "icon",             type: "image/png",     sizes: "16x16",   href: "/favicon/16.png" },
+      { rel: "apple-touch-icon",                        sizes: "180x180", href: "/favicon/180.png" },
+      { rel: "icon",             type: "image/png",     sizes: "192x192", href: "/favicon/192.png" },
+      { rel: "icon",             type: "image/png",     sizes: "512x512", href: "/favicon/512.png" },
+    ];
+    icons.forEach(function(cfg) {
+      var link = document.createElement("link");
+      link.rel = cfg.rel;
+      if (cfg.type)  link.type  = cfg.type;
+      if (cfg.sizes) link.sizes = cfg.sizes;
+      link.href = origin + cfg.href;
+      document.head.appendChild(link);
+    });
+  })();
+
   // ── Config ──
   var APPS = [
     { slug: "hub", name: "Tech Knowledge Base", icon: "\ud83d\udcda", url: "/knowledge" },

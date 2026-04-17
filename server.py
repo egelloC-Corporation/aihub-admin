@@ -238,7 +238,7 @@ def app_permission_required(app_slug):
                     'border-radius:8px;margin-top:16px;}a:hover{background:rgba(79,143,247,0.12);}</style></head>'
                     '<body><h2>Access Denied</h2><p style="color:#8b8fa3;margin-top:8px;">'
                     f'You don\'t have permission to access this application.</p>'
-                    '<a href="/launcher">Back to AI Hub</a></body></html>',
+                    '<a href="/launcher">Back to Incubator</a></body></html>',
                     status=403, content_type="text/html",
                 )
             return f(*args, **kwargs)
@@ -328,6 +328,34 @@ def hub_navbar_js():
     return send_from_directory(".", "hub-navbar.js", mimetype="application/javascript")
 
 
+@app.route("/favicon.ico")
+def favicon_ico():
+    # Most browsers fall back to /favicon.ico if they don't find an explicit
+    # <link rel="icon">. Serve the 32×32 PNG — browsers accept PNG here.
+    return send_from_directory("favicon", "32.png", mimetype="image/png")
+
+
+@app.route("/favicon.svg")
+def favicon_svg():
+    return send_from_directory("favicon", "favicon.svg", mimetype="image/svg+xml")
+
+
+@app.route("/apple-touch-icon.png")
+@app.route("/apple-touch-icon-precomposed.png")
+def apple_touch_icon():
+    return send_from_directory("favicon", "180.png", mimetype="image/png")
+
+
+@app.route("/favicon/<path:filename>")
+def favicon_asset(filename):
+    return send_from_directory("favicon", filename)
+
+
+@app.route("/assets/<path:filename>")
+def asset(filename):
+    return send_from_directory("assets", filename)
+
+
 @app.route("/")
 @app.route("/launcher")
 @login_required
@@ -414,7 +442,7 @@ def admin_required(f):
                 'border-radius:8px;margin-top:16px;}a:hover{background:rgba(79,143,247,0.12);}</style></head>'
                 '<body><h2>Access Denied</h2><p style="color:#8b8fa3;margin-top:8px;">'
                 'You don\'t have permission to access the Admin Panel.</p>'
-                '<a href="/launcher">Back to AI Hub</a></body></html>',
+                '<a href="/launcher">Back to Incubator</a></body></html>',
                 status=403, content_type="text/html",
             )
         return f(*args, **kwargs)

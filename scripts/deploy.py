@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Deploy script for AI Hub apps.
+Deploy script for Incubator apps.
 
 Handles the full deploy lifecycle:
   1. Clone repo (or copy local path) into apps/<app_name>/
@@ -141,10 +141,16 @@ def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, d
                 # credentials. Lines outside that block (manual DB_HOST etc.)
                 # survive.
                 lines = content.decode("utf-8", errors="replace").splitlines(keepends=True)
-                marker = "# AI Hub shared database — auto-provisioned\n"
-                if marker in lines:
-                    idx = lines.index(marker)
-                    lines = lines[:idx]
+                # Accept either the old "AI Hub" marker (pre-rename) or the new
+                # "Incubator" marker — existing apps still have .env files with
+                # the old one until their next full redeploy.
+                markers = (
+                    "# Incubator shared database — auto-provisioned\n",
+                    "# AI Hub shared database — auto-provisioned\n",
+                )
+                idxs = [lines.index(m) for m in markers if m in lines]
+                if idxs:
+                    lines = lines[: min(idxs)]
                 content = "".join(lines).encode("utf-8")
                 if not content.strip():
                     continue
@@ -862,7 +868,7 @@ def undeploy_app(app_name, dry_run=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Deploy and manage AI Hub apps")
+    parser = argparse.ArgumentParser(description="Deploy and manage Incubator apps")
     sub = parser.add_subparsers(dest="command", required=True)
 
     dep = sub.add_parser("deploy", help="Deploy an app")

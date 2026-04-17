@@ -3,7 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>egelloC AI Hub</title>
+  <title>egelloC Incubator</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon/32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon/16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/favicon/180.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon/192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/favicon/512.png">
   <style>
     :root {
       --bg: #0f1117;
@@ -65,6 +71,10 @@
 
     .welcome {
       text-align: center; margin-bottom: 48px;
+    }
+    .welcome .hero-logo {
+      display: block; margin: 0 auto 20px;
+      max-width: 360px; width: 100%; height: auto;
     }
     .welcome h2 {
       font-size: 28px; font-weight: 700; margin-bottom: 8px;
@@ -224,13 +234,14 @@
 
 <div class="topbar">
   <div class="topbar-brand">
-    <h1>egelloC AI Hub</h1>
+    <h1>egelloC Incubator</h1>
   </div>
   <div class="topbar-right"></div>
 </div>
 
 <div class="content">
   <div class="welcome">
+    <img src="/assets/incubator-logo.png" alt="egelloC Incubator" class="hero-logo">
     <h2 id="greeting">Welcome</h2>
     <p>Select an application to get started</p>
     <div class="view-toggle" id="viewToggle" style="margin-top:12px;">
@@ -244,7 +255,7 @@
   </div>
 </div>
 
-<div class="footer">egelloC AI Hub</div>
+<div class="footer">egelloC Incubator</div>
 
 <script>
 const APP_DEFS = [
