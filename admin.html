@@ -445,9 +445,8 @@
 
     /* ── App Registry Tab ── */
     .registry-layout {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+      display: flex; flex-direction: column; gap: 24px;
     }
-    @media (max-width: 900px) { .registry-layout { grid-template-columns: 1fr; } }
 
     .registry-card {
       background: var(--surface); border: 1px solid var(--border);
@@ -1086,9 +1085,9 @@ SECRET_TOKEN</span></span>
         <button class="submit-btn" id="submitAppBtn" onclick="submitApp()">Submit for Review</button>
       </div>
 
-      <!-- Approval Queue -->
+      <!-- Registered Applications -->
       <div class="registry-card">
-        <h3>Approval Queue</h3>
+        <h3>Registered Applications</h3>
         <div class="subtitle">Review and approve pending app submissions. Apps auto-deploy on approval and on every push to GitHub.</div>
         <div class="queue-list" id="queueList">
           <div class="queue-empty">Loading...</div>
