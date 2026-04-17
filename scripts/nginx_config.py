@@ -116,12 +116,10 @@ def _reload_nginx(app_name=None, port=None, action="add", dry_run=False):
 
 def generate_config(app_name, port):
     """Generate the Nginx location block for an app. Returns the config string."""
-    # NGINX_UPSTREAM_HOST controls how the generated config reaches app containers:
-    #   - Local dev (Docker nginx): use container name "aihub-{app_name}" (default)
-    #   - Production (system nginx on host): set to "127.0.0.1" since containers
-    #     publish ports to the host via -p
-    upstream_host = os.environ.get("NGINX_UPSTREAM_HOST", "")
-    upstream = upstream_host if upstream_host else f"aihub-{app_name}"
+    # Default to 127.0.0.1 — production uses host nginx (not Docker nginx)
+    # so Docker container names don't resolve. This was the #1 cause of
+    # deploy failures in the April 2026 session (hit 3 times across 4 apps).
+    upstream = os.environ.get("NGINX_UPSTREAM_HOST", "127.0.0.1")
     return LOCATION_TEMPLATE.format(app_name=app_name, upstream=upstream, port=port)
 
 

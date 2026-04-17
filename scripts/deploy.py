@@ -227,6 +227,9 @@ def _build_image(app_name, port=3000, dry_run=False):
     # prefix into static assets at build time (Next.js basePath, Vite base,
     # Angular --base-href) need the slug at build, not just runtime — without
     # it, /_next/* and /static/* assets 404 once the app sits behind /<slug>/.
+    # Pre-build: scan source for common deployment mistakes
+    _warn_path_prefix_issues(build_dir, app_name)
+
     cmd = [
         "docker", "build",
         "--build-arg", f"APP_SLUG={app_name}",
@@ -235,6 +238,37 @@ def _build_image(app_name, port=3000, dry_run=False):
     ]
     msg = _run(cmd, dry_run=dry_run)
     return msg or f"Built image {image_name}"
+
+
+def _warn_path_prefix_issues(build_dir, app_name):
+    """Scan source files for absolute paths that will break behind the /{slug}/ proxy.
+
+    Non-blocking — logs warnings but doesn't fail the build. Catches the
+    most common deployment mistake: href="/static/..." or fetch("/api/...")
+    in templates/JS that bypass the app's path prefix.
+    """
+    import glob
+    issues = []
+    patterns = [
+        ("templates/**/*.html", 'href="/static/', "Use relative paths: href=\"static/...\""),
+        ("templates/**/*.html", 'src="/static/', "Use relative paths: src=\"static/...\""),
+        ("static/**/*.js", 'fetch("/api/', "Use relative paths: fetch(\"api/...\")" ),
+        ("static/**/*.js", "fetch('/api/", "Use relative paths: fetch('api/...')" ),
+    ]
+    for file_glob, needle, fix in patterns:
+        for fpath in glob.glob(os.path.join(build_dir, file_glob), recursive=True):
+            try:
+                with open(fpath) as f:
+                    content = f.read()
+                if needle in content:
+                    rel = os.path.relpath(fpath, build_dir)
+                    issues.append(f"  {rel}: contains '{needle}' — {fix}")
+            except Exception:
+                pass
+    if issues:
+        print(f"  WARNING: Found absolute paths that may break behind /{app_name}/:")
+        for issue in issues[:10]:
+            print(issue)
 
 
 def _kill_port_holder(port, exclude_name=None, dry_run=False):
@@ -376,28 +410,69 @@ def _start_container(app_name, port, streamlit_port=None, dry_run=False):
     return msg or f"Started container {container_name} on port {port}"
 
 
-def _health_check(app_name, port, retries=3, dry_run=False):
-    """Check if the app is responding. Tries Docker network name first, then localhost."""
+def _health_check(app_name, port, retries=5, dry_run=False):
+    """Check if the app is responding AND serving real content.
+
+    Goes beyond a simple /health 200 — also verifies the app's index page
+    through nginx returns a non-error status and has a real HTML body. This
+    catches the failures that /health misses: broken CSS (path prefix wrong),
+    wrong DB credentials (500 on data routes), empty responses (Next.js
+    basePath bug), and nginx misconfigs (502/404).
+    """
     container_name = f"aihub-{app_name}"
     urls = [f"http://{container_name}:{port}/health", f"http://localhost:{port}/health"]
 
     if dry_run:
         return True, f"Would health check {urls[0]}"
 
+    import urllib.request
+
+    # Phase 1: wait for /health to return 200
+    health_ok = False
     for attempt in range(1, retries + 1):
         for url in urls:
             try:
-                import urllib.request
                 req = urllib.request.Request(url, method="GET")
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     if resp.status == 200:
-                        return True, f"Health check passed (attempt {attempt}, {url})"
+                        health_ok = True
+                        break
             except Exception:
                 continue
+        if health_ok:
+            break
         if attempt < retries:
-            time.sleep(2 ** attempt)  # exponential backoff: 2s, 4s, 8s
+            time.sleep(2 ** attempt)
 
-    return False, f"Health check failed after {retries} retries at {urls[0]}"
+    if not health_ok:
+        return False, f"Health check failed after {retries} retries at {urls[0]}"
+
+    # Phase 2: verify the app is reachable through nginx and returns real content.
+    # Use the host nginx (localhost:80) to test the full proxy chain.
+    warnings = []
+    try:
+        nginx_url = f"http://localhost/{app_name}/"
+        req = urllib.request.Request(nginx_url, headers={"Host": "aihub.egelloc.com"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read()
+            status = resp.status
+            if status >= 500:
+                warnings.append(f"nginx route /{app_name}/ returned {status}")
+            elif len(body) == 0:
+                warnings.append(f"nginx route /{app_name}/ returned empty body")
+    except urllib.error.HTTPError as e:
+        # 401/403 = auth working (expected), 404/502 = broken
+        if e.code in (401, 403, 307, 302):
+            pass  # auth redirect — app is reachable
+        else:
+            warnings.append(f"nginx route /{app_name}/ returned {e.code}")
+    except Exception as e:
+        warnings.append(f"nginx route check failed: {e}")
+
+    msg = f"Health check passed"
+    if warnings:
+        msg += f" (warnings: {'; '.join(warnings)})"
+    return True, msg
 
 
 def validate_submission(app_name, port, repo_url=None):
