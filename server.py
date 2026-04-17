@@ -50,6 +50,9 @@ app = Flask(__name__, static_folder=".")
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
 app.config["SESSION_COOKIE_PATH"] = "/"
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# Parent-scope the session cookie so it's valid across sibling subdomains
+# (aihub.egelloc.com and incubator.egelloc.com during the domain rename).
+app.config["SESSION_COOKIE_DOMAIN"] = os.environ.get("SESSION_COOKIE_DOMAIN", ".egelloc.com")
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 CORS(app)
 
