@@ -914,38 +914,73 @@
       </div>
       <div class="getting-started-body" style="display:none;" onclick="event.stopPropagation();">
         <div class="lead" style="margin-top:12px;line-height:1.7;">
-          Every app is served at <code>aihub.egelloc.com/&lt;slug&gt;/</code>, not at the root. These are the three issues that break 90% of first deploys:
 
           <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:10px 0;">
-            <strong style="color:var(--accent);">1. Path prefix — absolute URLs bypass your app</strong><br>
-            <span style="font-size:13px;color:var(--text-muted);">Symptom: page loads but CSS/JS don't, or &ldquo;This page isn't working&rdquo;, or dashboard renders with no data.</span><br><br>
-            <span style="font-size:13px;">Any URL in your HTML/JS that starts with <code>/</code> goes to the platform root, not your app. Fix per stack:</span>
-            <ul style="font-size:13px;margin:6px 0 0 20px;padding:0;">
-              <li><strong>Flask / Jinja templates:</strong> use relative paths — <code>href="static/css/style.css"</code> (not <code>"/static/..."</code>)</li>
-              <li><strong>Flask JS fetch():</strong> <code>fetch("api/stats")</code> (not <code>"/api/stats"</code>)</li>
-              <li><strong>Next.js:</strong> add <code>basePath: "/your-slug"</code> to <code>next.config.ts</code>, then rebuild</li>
-              <li><strong>Express / FastAPI:</strong> mount the router under the slug prefix, or use relative asset paths</li>
-              <li><strong>Streamlit:</strong> handled by the platform auth proxy — no change needed</li>
+            <strong style="color:var(--green);">What the platform does automatically</strong>
+            <ul style="font-size:13px;margin:6px 0 0 20px;padding:0;color:var(--text-muted);">
+              <li>Assigns a free port (you never pick one)</li>
+              <li>Provisions a scoped PostgreSQL database + user per app (full CRUD + DDL)</li>
+              <li>Sets <code>DATABASE_URL</code>, <code>PORT</code>, <code>APP_SLUG</code>, and platform env vars</li>
+              <li>Generates nginx routing config</li>
+              <li>Auto-deploys on every push to <code>main</code> (after webhook is set up)</li>
+              <li>Preserves your <code>.env</code> across redeploys</li>
             </ul>
           </div>
 
           <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:10px 0;">
-            <strong style="color:var(--accent);">2. Port conflicts</strong><br>
-            <span style="font-size:13px;color:var(--text-muted);">Symptom: deploy fails with &ldquo;address already in use&rdquo;.</span><br><br>
+            <strong style="color:var(--accent);">Pre-push checklist</strong><br>
+            <span style="font-size:13px;color:var(--text-muted);">Run through this before your first deploy:</span>
+            <ul style="font-size:13px;margin:6px 0 0 20px;padding:0;">
+              <li>&#9744; App listens on <code>PORT</code> env var (not hardcoded) and binds to <code>0.0.0.0</code></li>
+              <li>&#9744; <code>/health</code> endpoint returns <code>{"status":"ok"}</code></li>
+              <li>&#9744; Dockerfile exists and installs all dependencies</li>
+              <li>&#9744; No absolute paths (<code>href="/static/..."</code>, <code>fetch("/api/...")</code>) — use relative paths</li>
+              <li>&#9744; <strong>Next.js only:</strong> <code>basePath</code> set from <code>APP_SLUG</code>, server-side env vars NOT in <code>next.config.ts env{}</code></li>
+              <li>&#9744; <strong>Prisma only:</strong> <code>COPY prisma/</code> before <code>npm ci</code> in Dockerfile, initial migration included</li>
+              <li>&#9744; <code>&lt;script src="/hub-navbar.js" defer&gt;&lt;/script&gt;</code> before <code>&lt;/body&gt;</code></li>
+              <li>&#9744; Auth SDK wired in (<code>aihub-auth.js</code> or <code>aihub_auth.py</code>)</li>
+            </ul>
+          </div>
+
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:10px 0;">
+            <strong style="color:var(--orange);">1. Path prefix — #1 cause of broken deploys</strong><br>
+            <span style="font-size:13px;color:var(--text-muted);">Symptom: page loads but CSS/JS don't, or &ldquo;This page isn't working&rdquo;, or dashboard renders with no data.</span><br><br>
+            <span style="font-size:13px;">Your app is at <code>/slug/</code> but nginx strips the prefix &mdash; the app sees <code>/</code>. Any URL in HTML/JS that starts with <code>/</code> goes to the platform root, not your app.</span>
+            <ul style="font-size:13px;margin:6px 0 0 20px;padding:0;">
+              <li><strong>Flask / Jinja:</strong> <code>href="static/style.css"</code> and <code>fetch("api/data")</code> (relative, no leading slash)</li>
+              <li><strong>Next.js:</strong> set <code>basePath</code> from <code>APP_SLUG</code> in <code>next.config.ts</code> (deploy passes <code>--build-arg APP_SLUG</code>)</li>
+              <li><strong>Streamlit:</strong> no change needed</li>
+            </ul>
+          </div>
+
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:10px 0;">
+            <strong style="color:var(--orange);">2. Next.js: don't bake server env vars at build time</strong><br>
+            <span style="font-size:13px;color:var(--text-muted);">Symptom: 401 on all API routes, &ldquo;ECONNREFUSED 127.0.0.1:5051&rdquo; in logs, auth never works.</span><br><br>
             <span style="font-size:13px;">
-              The submission check now blocks ports held by other containers <em>and</em> host processes, but for reference: pick a port <strong>3000 is taken</strong> (Mission Control / Ruby), <strong>3001/3004/3010/3011</strong> are taken by other apps, <strong>5051/5052</strong> are admin/briefer, <strong>8080/8081/8501/8502</strong> are dashboards. Try something like <strong>3012+</strong> for new Flask/Node apps, or <strong>8083+</strong> for Streamlit.
+              <code>next.config.ts env{}</code> bakes values at <strong>build time</strong>. <code>AIHUB_AUTH_URL</code>, <code>DATABASE_URL</code>, and other server vars are empty during <code>docker build</code> (only set at runtime). Baking <code>""</code> overrides the real runtime value.<br><br>
+              <strong>Rule:</strong> only put <code>NEXT_PUBLIC_*</code> and <code>APP_SLUG</code> in <code>env{}</code>. Server code reads <code>process.env</code> directly.
             </span>
           </div>
 
           <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:10px 0;">
-            <strong style="color:var(--accent);">3. Database credentials</strong><br>
-            <span style="font-size:13px;color:var(--text-muted);">Symptom: &ldquo;connection failed&rdquo; or &ldquo;SSL required&rdquo; in the container logs.</span><br><br>
-            <span style="font-size:13px;">The platform injects env vars for two separate DBs. Read the right ones in your code:</span>
+            <strong style="color:var(--orange);">3. Database — read the right env vars</strong><br>
+            <span style="font-size:13px;color:var(--text-muted);">Symptom: &ldquo;connection failed&rdquo;, &ldquo;SSL negotiation&rdquo; error, or wrong data.</span><br><br>
+            <span style="font-size:13px;">Three database options:</span>
             <ul style="font-size:13px;margin:6px 0 0 20px;padding:0;">
-              <li><code>DB_HOST</code> / <code>DB_USER</code> / <code>DB_PASSWORD</code> &rarr; Nest MySQL (students, coaching)</li>
-              <li><code>ACQ_DB_HOST</code> / <code>ACQ_DB_USER</code> / <code>ACQ_DB_PASSWORD</code> &rarr; Acquisition PostgreSQL (sales, marketing, audit)</li>
+              <li><strong>Auto-provisioned Postgres</strong> (default) &mdash; <code>DATABASE_URL</code> set automatically. Prisma, SQLAlchemy, etc. read it out of the box.</li>
+              <li><strong>Nest MySQL</strong> (student data) &mdash; read <code>DB_HOST</code>, <code>DB_USER</code>, <code>DB_PASSWORD</code></li>
+              <li><strong>Acquisition Postgres</strong> (sales/marketing) &mdash; read <code>ACQ_DB_HOST</code>, <code>ACQ_DB_USER</code>, <code>ACQ_DB_PASSWORD</code> <strong>explicitly</strong></li>
             </ul>
-            <span style="font-size:13px;">If your app generically reads <code>DB_HOST</code> but needs Acquisition, you'll connect to the wrong database. Read <code>ACQ_DB_HOST</code> explicitly.</span>
+            <span style="font-size:13px;">Do NOT use generic <code>DB_HOST</code> if you need Acquisition &mdash; you'll connect to MySQL instead of Postgres.</span>
+          </div>
+
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:10px 0;">
+            <strong style="color:var(--orange);">4. Prisma apps — two extra steps</strong><br>
+            <span style="font-size:13px;color:var(--text-muted);">Symptom: build fails with &ldquo;schema.prisma: file not found&rdquo;, or container crashloops with migration errors.</span><br><br>
+            <ul style="font-size:13px;margin:6px 0 0 20px;padding:0;">
+              <li><strong>Dockerfile:</strong> add <code>COPY prisma ./prisma</code> BEFORE <code>RUN npm ci</code> in both <code>deps</code> and <code>runner</code> stages (postinstall runs <code>prisma generate</code>)</li>
+              <li><strong>Migrations:</strong> include an initial migration that creates all tables: <code>npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script</code>. Without it, the first deploy fails because ALTER TABLE runs before CREATE TABLE.</li>
+            </ul>
           </div>
         </div>
       </div>
