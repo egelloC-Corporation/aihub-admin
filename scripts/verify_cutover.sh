@@ -44,15 +44,30 @@ else
 fi
 
 info "App routes return HTTP OK"
-# Known live app slugs — keep in sync with app_submissions.
-# 404 / 302 are acceptable (auth-gated pages redirect to login).
-APPS=(/ /launcher /login /briefer/ /hub /knowledge /marketing-dashboard/ /sales-kpi/ /handbook/ /roadmap-generator/)
+# Pull live app slugs from production DB (authoritative).
+SLUGS=$(ssh -o ConnectTimeout=5 -o BatchMode=yes root@165.232.155.132 \
+    'docker exec aihub-admin-panel python3 -c "import sqlite3; c=sqlite3.connect(\"/app/permissions.db\"); print(\" \".join(r[0] for r in c.execute(\"SELECT slug FROM app_submissions WHERE status='\''live'\'' ORDER BY slug\").fetchall()))"' 2>/dev/null)
+if [[ -z "$SLUGS" ]]; then
+    echo "  (could not reach prod DB — falling back to hardcoded slug list)"
+    SLUGS="admin briefer coaching-responder commission-tracker handbook hub incubator-logs marketing-dashboard roadmap-generator sales-kpi"
+fi
+
+# Static paths to always check + per-app roots
+STATIC_PATHS=(/ /launcher /login)
 for host in "$OLD_HOST" "$NEW_HOST"; do
-    for path in "${APPS[@]}"; do
+    for path in "${STATIC_PATHS[@]}"; do
         code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "https://${host}${path}" || echo "ERR")
         case "$code" in
-            200|301|302|304|308|404) tick "$host$path → $code" ;;
-            *)                       cross "$host$path → $code" ;;
+            200|301|302|304|308) tick "$host$path → $code" ;;
+            *)                   cross "$host$path → $code" ;;
+        esac
+    done
+    for slug in $SLUGS; do
+        # Most apps have a trailing slash; nginx handles both
+        code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 "https://${host}/${slug}/" || echo "ERR")
+        case "$code" in
+            200|301|302|304|308|401|403) tick "$host/$slug/ → $code" ;;
+            *)                           cross "$host/$slug/ → $code" ;;
         esac
     done
 done

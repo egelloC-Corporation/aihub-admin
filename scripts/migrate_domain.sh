@@ -34,19 +34,47 @@ echo
 cp -a "$CONF" "$BACKUP"
 ok "backed up to $BACKUP"
 
-# 3. Add new hostname idempotently.
-#    Matches "server_name aihub.egelloc.com;" and appends new host before the ;
-#    Only rewrites if the new host isn't already present.
-if grep -qE "server_name[[:space:]]+[^;]*\b${NEW_HOST}\b" "$CONF"; then
-    ok "$NEW_HOST already in server_name — skipping edit"
-else
-    # Use sed with a pattern that matches any server_name line containing OLD_HOST
-    # and appends NEW_HOST before the semicolon.
-    sed -i -E "s/(server_name[[:space:]]+[^;]*\b${OLD_HOST}\b[^;]*);/\1 ${NEW_HOST};/" "$CONF"
-    ok "added $NEW_HOST to server_name"
-    log "new server_name lines:"
-    grep -n "server_name" "$CONF"
-fi
+# 3. Single Python pass handles BOTH edits idempotently:
+#    (a) replace the port-80 if/404 block with an unconditional redirect
+#        covering both hostnames (old block fails closed for incubator)
+#    (b) append NEW_HOST to every server_name line that has OLD_HOST but
+#        not NEW_HOST yet
+OLD_HOST="$OLD_HOST" NEW_HOST="$NEW_HOST" CONF="$CONF" python3 <<'PY'
+import os, re, pathlib, sys
+OLD = os.environ["OLD_HOST"]; NEW = os.environ["NEW_HOST"]; CONF = os.environ["CONF"]
+p = pathlib.Path(CONF)
+src = p.read_text()
+original = src
+
+# (a) port-80 block rewrite — only if the old "if ($host = OLD)" shape is present
+port80_pat = re.compile(
+    rf"server\s*\{{\s*if\s*\(\$host\s*=\s*{re.escape(OLD)}\)\s*\{{[^}}]*\}}\s*"
+    rf"listen\s+80;\s*server_name\s+{re.escape(OLD)};\s*return\s+404;\s*\}}",
+    re.DOTALL,
+)
+new_block = (
+    "server {\n    listen 80;\n"
+    f"    server_name {OLD} {NEW};\n"
+    "    return 301 https://$host$request_uri;\n}"
+)
+src, nblock = port80_pat.subn(new_block, src)
+
+# (b) expand server_name lines that still have OLD but not NEW
+def expand(m):
+    line = m.group(0)
+    return line if NEW in line else line.replace(";", f" {NEW};", 1)
+sn_pat = re.compile(rf"server_name\s+[^;]*\b{re.escape(OLD)}\b[^;]*;")
+src, nsn = sn_pat.subn(expand, src)
+
+p.write_text(src)
+print(f"  port-80 block rewrites:        {nblock}", flush=True)
+print(f"  server_name line expansions:   {nsn}", flush=True)
+print(f"  file changed:                  {src != original}", flush=True)
+PY
+ok "config edits applied (idempotent)"
+
+log "server_name lines after edit:"
+grep -n "server_name" "$CONF"
 echo
 
 # 4. Test config before reload
@@ -68,10 +96,12 @@ echo
 #    --non-interactive --agree-tos is safe: Let's Encrypt TOS already accepted
 #    previously for this server (existing certs prove this).
 log "running certbot --expand (this may take 15-30s)..."
+# Note: --redirect is NOT passed — we've already configured the port-80 redirect
+# for both hostnames manually above. Passing --redirect could cause certbot to
+# make additional, potentially conflicting edits to the config.
 if certbot --nginx --expand \
     -d "$OLD_HOST" -d "$NEW_HOST" \
     --non-interactive --agree-tos \
-    --redirect \
     --cert-name "$OLD_HOST" 2>&1 | tail -20; then
     ok "certbot --expand succeeded"
 else
@@ -90,13 +120,14 @@ echo
 # 8. Verify both hostnames serve HTTPS with the updated cert
 log "verifying..."
 for host in "$OLD_HOST" "$NEW_HOST"; do
-    # -k is safe here — we're verifying reachability on the server itself via
-    # --resolve, not trusting the cert blindly for production users.
+    # Test the landing page, not /health — /health isn't a registered route on
+    # this Flask app (it returns 404). / returns 200 when the admin panel is
+    # reachable end-to-end through nginx → admin container.
     code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 10 \
-        --resolve "${host}:443:127.0.0.1" "https://${host}/health" || echo "ERR")
+        --resolve "${host}:443:127.0.0.1" "https://${host}/" || echo "ERR")
     case "$code" in
-        200|302|301|404) ok "$host → HTTP $code" ;;
-        *)               err "$host → HTTP $code (investigate)" ;;
+        200|301|302) ok "$host / → HTTP $code" ;;
+        *)           err "$host / → HTTP $code (investigate)" ;;
     esac
 done
 
