@@ -48,6 +48,12 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS hidden_users (
+            email TEXT PRIMARY KEY,
+            hidden_by TEXT,
+            hidden_at TEXT DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE IF NOT EXISTS user_labels (
             email TEXT PRIMARY KEY,
             first_name TEXT NOT NULL,

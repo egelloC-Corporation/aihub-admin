@@ -477,16 +477,23 @@ def admin_users():
                 "source": "custom",
             })
 
-    # Apply name overrides from user_labels table
+    # Load hidden users + name overrides from permissions.db
     from permissions import get_db as _get_pdb
     pconn = _get_pdb()
+    try:
+        hidden = {row["email"].lower() for row in
+                  pconn.execute("SELECT email FROM hidden_users").fetchall()}
+    except Exception:
+        hidden = set()
     try:
         labels = {row["email"].lower(): row for row in
                   pconn.execute("SELECT email, first_name, last_name FROM user_labels").fetchall()}
     except Exception:
         labels = {}
-    finally:
-        pconn.close()
+    pconn.close()
+
+    # Filter out hidden users
+    users = [u for u in users if u["email"].lower() not in hidden]
 
     for u in users:
         override = labels.get(u["email"].lower())
@@ -864,6 +871,27 @@ def api_webhook_status():
             continue
         results[s["slug"]] = repo_url in _webhook_seen_repos
     return jsonify(results)
+
+
+@app.route("/admin/api/users/hide", methods=["POST"])
+@admin_required
+def api_hide_user():
+    """Hide a user from the permissions list. For Nest DB users that can't
+    be deleted from the source — hides them on the platform side."""
+    body = request.get_json()
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        return jsonify({"error": "email required"}), 400
+
+    from permissions import get_db as _get_pdb
+    conn = _get_pdb()
+    conn.execute(
+        "INSERT OR IGNORE INTO hidden_users (email, hidden_by) VALUES (?, ?)",
+        (email, session["user"]["email"]),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
 
 
 @app.route("/admin/api/users/rename", methods=["POST"])

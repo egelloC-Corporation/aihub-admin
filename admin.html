@@ -1250,7 +1250,7 @@ function render() {
     var sourceBadge = u.source === "custom" ? '<span class="source-badge">manual</span>' : '';
     var deleteBtn = '<button class="remove-btn" title="Delete user and revoke all permissions" onclick="deleteUser(\'' + u.email.replace(/'/g, "\\'") + '\', \'' + (u.first_name + ' ' + u.last_name).replace(/'/g, "\\'") + '\')">&times;</button>';
 
-    var editedBadge = u.name_edited ? '<span class="source-badge" style="background:rgba(79,143,247,0.15);color:#4f8ff7;">edited</span>' : '';
+    var editedBadge = '';
     function escAttr(s) { return String(s||"").replace(/&/g,"&amp;").replace(/'/g,"&#39;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
     var nameDisplay = escAttr(u.first_name + ' ' + u.last_name);
     var nameEl = '<span class="editable-name" title="Click to rename" onclick="editName(this, \'' + escAttr(u.email) + '\', \'' + escAttr(u.first_name) + '\', \'' + escAttr(u.last_name) + '\')">' + nameDisplay + '</span>';
@@ -1467,14 +1467,21 @@ async function deleteUser(email, name) {
     });
   }
 
-  // Also try to remove if custom user
+  // Remove custom user AND hide from the list (Nest users can't be deleted
+  // from the source DB, so we hide them on the platform side)
   await fetch("/admin/api/remove-user", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({ email: email }),
   }).catch(function() {});
 
-  showToast("Deleted " + name + " — all permissions revoked");
+  await fetch("/admin/api/users/hide", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ email: email }),
+  }).catch(function() {});
+
+  showToast("Removed " + name + " from the list");
   loadData();
 }
 
