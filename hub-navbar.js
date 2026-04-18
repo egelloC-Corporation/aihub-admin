@@ -378,11 +378,7 @@
         });
       }
 
-      // Render — the "Incubator" tile (first, fixed) doubles as a quick
-      // return to /launcher even though the banner already has one.
-      var html = '<a class="hub-app-item" href="/launcher">' +
-        '<div class="hub-app-icon"><img src="' + window.location.origin + '/favicon.svg" alt="Incubator" style="width:28px;height:28px;"></div>' +
-        '<div class="hub-app-label">Incubator</div></a>';
+      var html = '';
 
       for (var q = 0; q < permitted.length; q++) {
         var app = permitted[q];
