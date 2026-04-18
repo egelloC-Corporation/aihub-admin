@@ -48,19 +48,9 @@
       overflow: hidden;
     }
 
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 14px 28px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-    .topbar h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
-    .topbar-right { display: flex; align-items: center; gap: 12px; padding-right: 48px; }
+    /* .topbar removed — the platform banner (hub-navbar.js) provides
+       the app name header. The admin has no per-page controls that
+       need a sub-header, so the space goes back to content. */
     .back-link {
       color: var(--text-muted); text-decoration: none; font-size: 13px;
       padding: 5px 12px; border: 1px solid var(--border); border-radius: 6px;
@@ -720,13 +710,6 @@
   </style>
 </head>
 <body>
-
-<div class="topbar">
-  <h1>Admin Panel</h1>
-  <div class="topbar-right">
-    <!-- App switcher in hub-navbar.js -->
-  </div>
-</div>
 
 <div class="container">
   <div class="tabs">
