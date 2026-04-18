@@ -38,30 +38,9 @@
       flex-direction: column;
     }
 
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 14px 28px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
-    }
-    .topbar-brand {
-      display: flex; align-items: center; gap: 10px;
-      text-decoration: none; color: var(--text);
-    }
-    .topbar-brand img { height: 28px; }
-    .topbar-brand h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
-    .topbar-right { display: flex; align-items: center; gap: 10px; }
-    .user-info { display: flex; align-items: center; gap: 8px; }
-    .user-avatar { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border); }
-    .user-name { font-size: 13px; color: var(--text-muted); }
-    .logout-btn {
-      background: none; border: 1px solid var(--border); color: var(--text-muted);
-      padding: 5px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
-      text-decoration: none; transition: all 0.15s;
-    }
-    .logout-btn:hover { border-color: #ef4444; color: #ef4444; }
+    /* .topbar / user-info / logout-btn styles removed — the launcher
+       is the Incubator home, so the hero logo + waffle drawer cover
+       branding and user controls. No top chrome needed here. */
 
     .content {
       flex: 1; display: flex; flex-direction: column;
@@ -231,13 +210,6 @@
   </style>
 </head>
 <body>
-
-<div class="topbar">
-  <div class="topbar-brand">
-    <h1>egelloC Incubator</h1>
-  </div>
-  <div class="topbar-right"></div>
-</div>
 
 <div class="content">
   <div class="welcome">
