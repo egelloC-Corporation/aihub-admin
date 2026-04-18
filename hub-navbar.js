@@ -205,8 +205,8 @@
 
       // Render
       var html = '<a class="hub-app-item" href="/launcher">' +
-        '<div class="hub-app-icon">\ud83c\udfe0</div>' +
-        '<div class="hub-app-label">Home</div></a>';
+        '<div class="hub-app-icon"><img src="' + window.location.origin + '/favicon.svg" alt="Incubator" style="width:28px;height:28px;"></div>' +
+        '<div class="hub-app-label">Incubator</div></a>';
 
       for (var i = 0; i < permitted.length; i++) {
         var app = permitted[i];
