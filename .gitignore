@@ -6,6 +6,10 @@ venv/
 readonly_db_users.json
 ssh_aliases.json
 
+# Local editor / OS artifacts
+.DS_Store
+.claude/
+
 # Infrastructure
 apps/
 nginx/apps/*.conf
