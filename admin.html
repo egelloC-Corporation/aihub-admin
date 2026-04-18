@@ -846,7 +846,14 @@
 
 3. If my app serves HTML, add this before &lt;/body&gt; on every page:
    &lt;script src="/hub-navbar.js" defer&gt;&lt;/script&gt;
-   This loads the Incubator app switcher from the platform.
+   This script does three things: loads the Incubator app-switcher drawer, injects the platform favicon, and renders the platform header banner (egg + "Incubator" wordmark + divider + app name) at the top of the page. Clicking the wordmark goes to /launcher; clicking the app name goes to the app's own root.
+
+   PLATFORM CHROME CONTRACT — what the platform owns vs. what your app owns:
+   - Do NOT render your own "Incubator" brand or your own app name in your header — the banner already shows them.
+   - Do NOT add &lt;link rel="icon"&gt; tags — the script manages favicons centrally.
+   - DO put app-specific controls (selectors, filters, tabs, search) in your own sub-header below the banner, or integrated into your main view.
+   - CSS: the banner is sticky at top with height 48px (44px on mobile). If you use `position: sticky; top: 0` inside your app, change it to `top: 48px` so it stacks below the banner.
+   - Full spec: docs/platform-banner.md
 
 4. CRITICAL — handle the path prefix. The app is served at /APP_SLUG/ but receives requests at / (nginx strips the prefix). The fix depends on the stack:
 

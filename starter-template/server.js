@@ -14,16 +14,18 @@ app.get("/health", (req, res) => {
 });
 
 // HTML page — any authenticated Incubator user
+//
+// Notice: we don't render an app-name heading or set favicon <link> tags.
+// The platform's hub-navbar.js injects a sticky header banner with
+// the egg logo, "Incubator" wordmark, a divider, and your app name —
+// plus the favicon tags and the app-switcher drawer. See docs/platform-banner.md.
 app.get("/", loginRequired, (req, res) => {
   res.send(`<!DOCTYPE html>
 <html><head><title>${APP_SLUG}</title>
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="icon" type="image/png" sizes="32x32" href="/favicon/32.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/favicon/180.png">
 <style>body{background:#0f1117;color:#e4e6eb;font-family:-apple-system,sans-serif;margin:0;padding:40px;}</style>
 </head><body>
-<h1>Hello ${req.user.name || req.user.email}!</h1>
-<p>This is ${APP_SLUG}.</p>
+<p>Hello ${req.user.name || req.user.email}! Welcome to ${APP_SLUG}.</p>
+<!-- Put your app content + its own sub-header (filters, selectors, tabs) here. -->
 <script src="/hub-navbar.js" defer></script>
 </body></html>`);
 });

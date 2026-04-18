@@ -57,6 +57,25 @@ Two middleware options:
 - `loginRequired` — any authenticated @egelloc.com user
 - `requirePermission("my-app")` — only users with permission for your specific app
 
+## Platform chrome (header banner, favicon, app-switcher)
+
+Every authenticated page that includes `<script src="/hub-navbar.js" defer>`
+automatically gets, rendered by the platform, not by your app:
+
+- **Sticky top banner** (48px): egg logo → "Incubator" wordmark → divider → your app's name
+- **Favicon** set across all sizes (Incubator egg)
+- **Waffle app-switcher** drawer on the right of the banner (user info + apps they have access to)
+
+**What your app should NOT do:**
+- Don't render your own "Incubator" brand or your own app name in your header — the banner already shows them
+- Don't add `<link rel="icon">` tags — the platform manages favicons centrally
+- Don't use `position: sticky; top: 0` on your own elements; use `top: 48px` (or `44px` on mobile) so you stack below the banner
+
+**What your app SHOULD do:**
+- Put app-specific controls (filters, date pickers, selectors, sub-navigation) in a sub-header below the banner, or integrated into your main view
+
+Full spec: [`docs/platform-banner.md`](../docs/platform-banner.md)
+
 ## Run with Docker
 
 ```bash

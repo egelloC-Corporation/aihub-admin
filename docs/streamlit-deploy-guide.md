@@ -211,3 +211,38 @@ plotly>=5.0.0
 - [ ] `AIHUB_LOGIN_URL` read from env — redirects to admin panel login
 - [ ] Navbar injection in HTML responses — `</body>` replacement
 - [ ] Streamlit component for navbar — `components.html('<script src="/hub-navbar.js"></script>', height=0)`
+
+## Platform chrome on Streamlit
+
+Streamlit apps get a different header treatment than the rest of the
+platform. Instead of the full-width sticky banner, Streamlit apps get a
+**compact pill** next to the existing waffle drawer, both floating at
+bottom-right:
+
+```
+                              ┌──────────────────────┐
+                              │ 🥚 Incubator · Name  │ ☰
+                              └──────────────────────┘
+```
+
+This is because Streamlit's React mount creates a stacking context that
+occludes top-of-page DOM injections despite high z-index. The
+floating position + `isolation: isolate` on the container is the only
+reliable way to keep the UI on top across all Streamlit renders.
+
+Three things to know as a Streamlit app builder:
+
+1. **You don't configure this** — `hub-navbar.js` detects Streamlit
+   automatically (presence of `div#root` + `<noscript>`) and switches
+   to pill mode.
+
+2. **Don't fight it with your own header** — Streamlit's sidebar and
+   title bar are yours to use, but don't put an "Incubator" brand or
+   app-name title in there; the pill covers both.
+
+3. **Nginx sub_filter is all that's required** — see the production
+   nginx templates for `sales-kpi.conf` and `marketing-dashboard.conf`
+   in `nginx/production-apps/`. The JS handles the rest.
+
+Full contract and rendering details:
+[`docs/platform-banner.md`](platform-banner.md).
