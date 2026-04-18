@@ -176,7 +176,7 @@ def audit_log_request(response):
             )
         return response
 
-    skip = ("/static", "/health", "/hub-navbar.js", "/favicon")
+    skip = ("/static", "/health", "/hub-navbar.js", "/favicon", "/apple-touch-icon", "/assets/")
     if any(request.path.startswith(p) for p in skip):
         return response
 
