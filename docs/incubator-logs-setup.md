@@ -200,6 +200,42 @@ DB_PASSWORD=<shanes-db-password>
 DB_SSLMODE=require
 ```
 
+## 7. Success Metrics definitions
+
+The Incubator Logs dashboard has a "Success Metrics" panel where admins
+define which event action names count as a per-app success KPI (e.g.
+`roadmap_generated` for roadmap-generator). Definitions live in a
+separate table on the same Acquisition DB.
+
+Run on the **Acquisition** database:
+
+```sql
+CREATE TABLE IF NOT EXISTS app_kpi_definitions (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    app_slug VARCHAR(100) NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    display_label VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_by VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    UNIQUE (app_slug, action)
+);
+
+CREATE INDEX idx_app_kpi_definitions_app_slug ON app_kpi_definitions (app_slug);
+```
+
+Grant SELECT + INSERT to whichever user the Incubator Logs dashboard
+connects as (the `DB_USER` in its `.env`). Reading definitions powers
+the "defined" / "not defined yet" state; INSERT is the Define → save
+flow. Replace `<dashboard_db_user>` with the actual user:
+
+```sql
+GRANT SELECT, INSERT ON app_kpi_definitions TO "<dashboard_db_user>";
+```
+
+No DELETE / UPDATE grant needed — the UI is create-only for this
+round. Editing or removing definitions is a follow-up feature.
+
 ---
 
 ## Changes from original proposal
