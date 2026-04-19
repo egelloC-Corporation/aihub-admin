@@ -1162,6 +1162,58 @@ def github_webhook():
 
     log.info("Webhook push: %s (branch: %s)", repo_name, branch)
 
+    # Audit log: every valid push. Powers the Git Activity feed in incubator-logs.
+    try:
+        pusher = body.get("pusher") or {}
+        head_commit = body.get("head_commit") or {}
+        author = head_commit.get("author") or {}
+        commits_arr = body.get("commits") or []
+
+        # Pusher email can be a GitHub noreply — fall back to the human name
+        # or the commit author's email so the feed isn't full of anonymous rows.
+        pusher_email = pusher.get("email") or ""
+        if pusher_email.endswith("@users.noreply.github.com"):
+            pusher_email = pusher.get("name") or author.get("email") or pusher_email
+
+        # Match the pushed repo to an app_submissions row (any status).
+        push_app_slug = None
+        try:
+            from permissions import get_db as _gadb
+            _c = _gadb()
+            _srows = _c.execute(
+                "SELECT slug, repo_url FROM app_submissions WHERE repo_url != ''"
+            ).fetchall()
+            _c.close()
+            _nkey = _normalize_repo(repo_url)
+            for _sr in _srows:
+                if _normalize_repo(_sr["repo_url"]) == _nkey:
+                    push_app_slug = _sr["slug"]
+                    break
+        except Exception as _e:
+            log.warning("git_push app_slug lookup failed: %s", _e)
+
+        head_sha = head_commit.get("id") or ""
+        head_msg = (head_commit.get("message") or "").split("\n", 1)[0][:200]
+
+        log_event(
+            "git_push",
+            f"push to {branch}",
+            user_email=pusher_email or None,
+            user_name=pusher.get("name") or author.get("name"),
+            app_slug=push_app_slug,
+            detail=head_msg or None,
+            metadata={
+                "sha": head_sha[:12],
+                "full_sha": head_sha,
+                "repo": repo_name,
+                "branch": branch,
+                "commit_count": len(commits_arr),
+                "commit_url": head_commit.get("url"),
+            },
+        )
+    except Exception as _e:
+        log.warning("git_push log_event failed: %s", _e)
+
     # Must happen BEFORE any self-deploy trigger — otherwise the restart
     # that follows wipes the in-flight write.
     _record_webhook_delivery(repo_url)
