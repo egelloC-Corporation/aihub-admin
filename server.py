@@ -508,7 +508,7 @@ def admin_users():
                 "source": "custom",
             })
 
-    # Load hidden users + name overrides from permissions.db
+    # Load hidden users + name/role overrides from permissions.db
     from permissions import get_db as _get_pdb
     pconn = _get_pdb()
     try:
@@ -521,6 +521,11 @@ def admin_users():
                   pconn.execute("SELECT email, first_name, last_name FROM user_labels").fetchall()}
     except Exception:
         labels = {}
+    try:
+        role_overrides = {row["email"].lower(): row["roles"] for row in
+                          pconn.execute("SELECT email, roles FROM user_role_overrides").fetchall()}
+    except Exception:
+        role_overrides = {}
     pconn.close()
 
     # Filter out hidden users
@@ -532,6 +537,13 @@ def admin_users():
             u["first_name"] = override["first_name"]
             u["last_name"] = override["last_name"]
             u["name_edited"] = True
+        # Role override: when set, replaces Nest roles entirely. Keep the raw
+        # value on u["roles_original"] so the UI can show "overridden" state.
+        role_override = role_overrides.get(u["email"].lower())
+        if role_override is not None:
+            u["roles_original"] = u.get("roles", "") or u.get("role", "")
+            u["roles"] = role_override
+            u["roles_edited"] = True
 
     return jsonify({"users": users, "apps": apps})
 
@@ -641,7 +653,10 @@ def admin_permission_groups():
         staff = []
     custom = get_custom_users()
 
-    # Collect hidden users so they don't populate any group
+    # Collect hidden users + role overrides from permissions.db. Overrides
+    # replace Nest roles entirely (same shape as admin_users), so a user
+    # whose Nest role is wrong can be re-grouped without waiting for the
+    # Nest side to update.
     from permissions import get_db as _get_pdb
     pconn = _get_pdb()
     try:
@@ -649,6 +664,11 @@ def admin_permission_groups():
                   pconn.execute("SELECT email FROM hidden_users").fetchall()}
     except Exception:
         hidden = set()
+    try:
+        role_overrides = {row["email"].lower(): row["roles"] for row in
+                          pconn.execute("SELECT email, roles FROM user_role_overrides").fetchall()}
+    except Exception:
+        role_overrides = {}
     pconn.close()
 
     # Invert: {normalized_role: set(emails)}
@@ -659,7 +679,9 @@ def admin_permission_groups():
             return
         if email.lower() in hidden:
             return
-        for chunk in (raw_roles or "").split(","):
+        # Prefer override if present
+        effective = role_overrides.get(email.lower(), raw_roles)
+        for chunk in (effective or "").split(","):
             norm = _normalize_role(chunk)
             if norm:
                 by_role.setdefault(norm, set()).add(email)
@@ -1043,6 +1065,65 @@ def api_rename_user():
     conn.commit()
     conn.close()
     return jsonify({"status": "ok"})
+
+
+# Canonical role vocabulary — the same set the admin page's role filter
+# normalizes to, and the same set the Incubator Logs Groups dropdown shows.
+# The set is a superset-of-normalized-inputs, kept explicit so the UI's role
+# picker has a fixed, discoverable list rather than derived-from-data.
+CANONICAL_ROLES = ["Admin", "Coach", "Cx", "Marketing", "Sales", "Strategist"]
+
+
+@app.route("/admin/api/users/update-roles", methods=["POST"])
+@admin_required
+def api_update_user_roles():
+    """Override a user's roles. Stored in user_role_overrides (takes
+    precedence over Nest-sourced roles). Roles are validated against
+    the canonical set so the picker can't smuggle unknown values in.
+    Pass an empty list to remove the override and fall back to Nest."""
+    body = request.get_json() or {}
+    email = (body.get("email") or "").strip().lower()
+    roles = body.get("roles")
+
+    if not email:
+        return jsonify({"error": "email required"}), 400
+    if not isinstance(roles, list):
+        return jsonify({"error": "roles must be a list"}), 400
+
+    # Validate every role against canonical set (case-insensitive)
+    canon_lower = {r.lower(): r for r in CANONICAL_ROLES}
+    cleaned = []
+    for r in roles:
+        if not isinstance(r, str):
+            continue
+        key = r.strip().lower()
+        if not key:
+            continue
+        if key not in canon_lower:
+            return jsonify({"error": f"unknown role: {r!r}. Allowed: {CANONICAL_ROLES}"}), 400
+        cleaned.append(canon_lower[key])
+    # Deduplicate preserving order
+    seen = set()
+    cleaned = [r for r in cleaned if not (r in seen or seen.add(r))]
+
+    from permissions import get_db as _get_pdb
+    conn = _get_pdb()
+    if not cleaned:
+        # Empty list → remove the override, revert to Nest
+        conn.execute("DELETE FROM user_role_overrides WHERE email = ?", (email,))
+    else:
+        conn.execute(
+            """INSERT INTO user_role_overrides (email, roles, updated_by)
+               VALUES (?, ?, ?)
+               ON CONFLICT(email) DO UPDATE SET
+                 roles = excluded.roles,
+                 updated_by = excluded.updated_by,
+                 updated_at = datetime('now')""",
+            (email, ",".join(cleaned), session["user"]["email"]),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok", "roles": cleaned})
 
 
 @app.route("/admin/api/apps/status", methods=["POST"])

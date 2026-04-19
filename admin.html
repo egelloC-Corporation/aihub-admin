@@ -121,7 +121,7 @@
       background: #13151e;
       box-shadow: 0 1px 0 var(--border);
     }
-    /* Freeze User + Nest Role columns when scrolling horizontally */
+    /* Freeze User + Role columns when scrolling horizontally */
     .perm-table th:nth-child(1),
     .perm-table td:nth-child(1) {
       position: sticky; left: 0; z-index: 5;
@@ -177,6 +177,38 @@
     .role-badge.admin { background: #7c3aed20; color: #a78bfa; }
     .role-badge.super_admin { background: #f59e0b20; color: #f59e0b; }
     .role-badge.coach { background: #22c55e20; color: #22c55e; }
+    .role-badge.role-empty { background: transparent; color: var(--text-dim); font-weight: 400; }
+
+    /* Editable role cell */
+    .editable-roles { cursor: pointer; padding: 2px 4px; margin: -2px -4px; border-radius: 4px; transition: background 0.12s; }
+    .editable-roles:hover { background: var(--surface-hover); }
+
+    /* Inline role picker (opens inside the Role cell on click) */
+    .role-picker {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px; min-width: 220px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    }
+    .role-picker-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+    .role-picker-chip {
+      background: var(--bg); border: 1px solid var(--border); color: var(--text-muted);
+      padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 500;
+      cursor: pointer; transition: all 0.12s; font-family: inherit;
+    }
+    .role-picker-chip:hover { color: var(--text); border-color: var(--text-muted); }
+    .role-picker-chip.active {
+      background: var(--accent-dim); border-color: var(--accent); color: var(--accent);
+    }
+    .role-picker-actions { display: flex; justify-content: flex-end; gap: 6px; border-top: 1px solid var(--border); padding-top: 6px; }
+    .role-picker-btn {
+      padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: 600;
+      cursor: pointer; border: 1px solid var(--border); font-family: inherit;
+    }
+    .role-picker-save { background: var(--accent); color: #0f1117; border-color: var(--accent); }
+    .role-picker-save:hover { background: #3a7ae0; }
+    .role-picker-save:disabled { opacity: 0.6; cursor: not-allowed; }
+    .role-picker-cancel { background: none; color: var(--text-muted); }
+    .role-picker-cancel:hover { color: var(--text); border-color: var(--text-muted); }
 
     /* Toggle switch */
     .toggle-cell { text-align: center; }
@@ -756,7 +788,7 @@
     <thead>
       <tr>
         <th>User</th>
-        <th>Nest Role</th>
+        <th>Role</th>
         <th id="appHeaders"></th>
       </tr>
     </thead>
@@ -1260,10 +1292,21 @@ function render() {
   }
 
   tbody.innerHTML = filtered.map(u => {
-    const roles = (u.roles || "").split(",").map(r => {
-      const cls = r.trim() === "super_admin" ? "super_admin" : r.trim() === "admin" ? "admin" : r.trim() === "coach" ? "coach" : "";
-      return '<span class="role-badge ' + cls + '">' + r.trim() + '</span>';
-    }).join("");
+    // Render role badges from normalized canonical values (Admin, Coach, Cx,
+    // Marketing, Sales, Strategist). The server applies any override from
+    // user_role_overrides before returning, so what we see is the effective
+    // set. Click-to-edit opens an inline chip picker.
+    const rawRoles = (u.roles || "").split(",").map(r => r.trim()).filter(Boolean);
+    const normalizedRoles = rawRoles.map(normalizeRoleDisplay).filter(Boolean);
+    const roleBadges = normalizedRoles.length
+      ? normalizedRoles.map(r => {
+          const cls = r.toLowerCase() === "admin" ? "admin" :
+                      r.toLowerCase() === "coach" ? "coach" : "";
+          return '<span class="role-badge ' + cls + '">' + r + '</span>';
+        }).join("")
+      : '<span class="role-badge role-empty">—</span>';
+    const editBadge = u.roles_edited ? '<span class="source-badge" title="Role overridden in admin panel">edited</span>' : '';
+    const roleCell = '<div class="user-roles editable-roles" title="Click to edit role" onclick="editRoles(this, \'' + escAttr(u.email) + '\')">' + roleBadges + editBadge + '</div>';
 
     const toggles = DATA.apps.map(a => {
       const checked = u.permissions.includes(a.slug) ? "checked" : "";
@@ -1285,10 +1328,109 @@ function render() {
         '<div class="user-name">' + nameEl + editedBadge + sourceBadge + deleteBtn + '</div>' +
         '<div class="user-email">' + u.email + '</div>' +
       '</div></td>' +
-      '<td><div class="user-roles">' + roles + '</div></td>' +
+      '<td>' + roleCell + '</td>' +
       toggles +
     '</tr>';
   }).join("");
+}
+
+// Match server-side _normalize_role() so displayed badges use the same
+// vocabulary the role picker writes back. Keep in sync with server.py.
+function normalizeRoleDisplay(raw) {
+  if (!raw) return "";
+  var s = String(raw).replace(/_/g, " ").trim();
+  if (!s) return "";
+  s = s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  if (s === "Super admin") s = "Admin";
+  return s;
+}
+
+const CANONICAL_ROLES = ["Admin", "Coach", "Cx", "Marketing", "Sales", "Strategist"];
+
+function editRoles(cell, email) {
+  // Already editing this cell? ignore
+  if (cell.querySelector(".role-picker")) return;
+
+  const user = DATA.users.find(u => u.email === email);
+  if (!user) return;
+
+  const currentRaw = (user.roles || "").split(",").map(r => r.trim()).filter(Boolean);
+  const currentSet = new Set(currentRaw.map(normalizeRoleDisplay).filter(Boolean));
+  const originalHtml = cell.innerHTML;
+
+  const picker = document.createElement("div");
+  picker.className = "role-picker";
+  picker.onclick = (e) => e.stopPropagation();
+
+  const chips = document.createElement("div");
+  chips.className = "role-picker-chips";
+  CANONICAL_ROLES.forEach(role => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "role-picker-chip" + (currentSet.has(role) ? " active" : "");
+    chip.textContent = role;
+    chip.onclick = () => {
+      chip.classList.toggle("active");
+    };
+    chips.appendChild(chip);
+  });
+  picker.appendChild(chips);
+
+  const actions = document.createElement("div");
+  actions.className = "role-picker-actions";
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "role-picker-btn role-picker-save";
+  saveBtn.textContent = "Save";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "role-picker-btn role-picker-cancel";
+  cancelBtn.textContent = "Cancel";
+  actions.appendChild(saveBtn);
+  actions.appendChild(cancelBtn);
+  picker.appendChild(actions);
+
+  cell.innerHTML = "";
+  cell.appendChild(picker);
+
+  function close() {
+    cell.innerHTML = originalHtml;
+    document.removeEventListener("click", onOutsideClick, true);
+  }
+  function onOutsideClick(e) {
+    if (!picker.contains(e.target)) close();
+  }
+  // Defer attachment so the click that opened the picker doesn't immediately close it
+  setTimeout(() => document.addEventListener("click", onOutsideClick, true), 0);
+
+  cancelBtn.onclick = close;
+  saveBtn.onclick = () => {
+    const selected = Array.from(chips.querySelectorAll(".role-picker-chip.active"))
+      .map(el => el.textContent);
+    saveBtn.disabled = true;
+    cancelBtn.disabled = true;
+    saveBtn.textContent = "Saving…";
+    fetch("/admin/api/users/update-roles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email, roles: selected }),
+    }).then(r => r.json()).then(data => {
+      if (data.status === "ok") {
+        showToast(selected.length ? "Roles updated" : "Role override cleared");
+        loadData();
+      } else {
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+        saveBtn.textContent = "Save";
+        showToast(data.error || "Failed to save");
+      }
+    }).catch(() => {
+      saveBtn.disabled = false;
+      cancelBtn.disabled = false;
+      saveBtn.textContent = "Save";
+      showToast("Failed to save");
+    });
+  };
 }
 
 async function togglePerm(email, appSlug, granted) {

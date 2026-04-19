@@ -67,6 +67,13 @@ def init_db():
             updated_at TEXT DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS user_role_overrides (
+            email TEXT PRIMARY KEY,
+            roles TEXT NOT NULL,
+            updated_by TEXT,
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE IF NOT EXISTS app_registry (
             slug TEXT PRIMARY KEY,
             name TEXT NOT NULL,
