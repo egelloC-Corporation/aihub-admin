@@ -636,8 +636,8 @@ def _normalize_role(raw: str) -> str:
 @app.route("/admin/api/permission-groups")
 @admin_required
 def admin_permission_groups():
-    """Groups of users by role (Admin, Coach, Cx, Marketing, Sales, Strategist, etc.)
-    for the Incubator Logs multi-user filter's preset dropdown.
+    """Groups of users by role for the Incubator Logs multi-user filter's
+    preset dropdown.
 
     Returns:
         {"groups": [{"id": "role-<slug>", "label": "<Role>", "emails": [...]}, ...]}
@@ -646,10 +646,13 @@ def admin_permission_groups():
     proxy, which forwards the caller's session cookie so this admin-only
     endpoint stays gated.
 
-    Role source: `roles` column on nest MySQL staff + `role` on custom users.
-    Normalized the same way the permissions page's role filter normalizes
-    (see admin.html: replace _ with space, title-case, merge Super admin →
-    Admin) so the two dropdowns always expose the same role vocabulary.
+    Role source: `roles` column on nest MySQL staff + `role` on custom users,
+    with user_role_overrides (from this panel's role editor) taking
+    precedence. Everything flows through _normalize_role so both dropdowns
+    share vocabulary and DROPPED_ROLES/synonym merges apply uniformly.
+
+    Served no-store so role edits reach the Incubator Logs dropdown on the
+    next refetch instead of sitting in an HTTP cache.
     """
     # Fetch staff + custom users (same sources admin_users() uses)
     if pool:
@@ -710,7 +713,9 @@ def admin_permission_groups():
             "emails": emails,
         })
 
-    return jsonify({"groups": groups})
+    resp = jsonify({"groups": groups})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.route("/admin/api/bulk", methods=["POST"])
