@@ -55,6 +55,11 @@
       display: block; margin: 0 auto 20px;
       max-width: 360px; width: 100%; height: auto;
     }
+    .welcome .tagline {
+      font-style: italic; font-weight: 600;
+      font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--text-muted); margin-bottom: 10px;
+    }
     .welcome h2 {
       font-size: 28px; font-weight: 700; margin-bottom: 8px;
     }
@@ -214,8 +219,8 @@
 <div class="content">
   <div class="welcome">
     <img src="/assets/incubator-logo.png" alt="egelloC Incubator" class="hero-logo">
+    <p class="tagline">Where tools hatch.</p>
     <h2 id="greeting">Welcome</h2>
-    <p>Select an application to get started</p>
     <div class="view-toggle" id="viewToggle" style="margin-top:12px;">
       <button onclick="setView('grid')" title="Grid view"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="7" height="7" rx="1.5"/><rect x="9" y="0" width="7" height="7" rx="1.5"/><rect x="0" y="9" width="7" height="7" rx="1.5"/><rect x="9" y="9" width="7" height="7" rx="1.5"/></svg></button>
       <button onclick="setView('list')" title="List view"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="1" width="16" height="3" rx="1"/><rect x="0" y="6.5" width="16" height="3" rx="1"/><rect x="0" y="12" width="16" height="3" rx="1"/></svg></button>
