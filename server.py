@@ -598,40 +598,83 @@ def admin_remove_user():
     return jsonify({"status": "removed"})
 
 
+def _normalize_role(raw: str) -> str:
+    """Match admin.html's client-side role normalization exactly:
+    replace underscores, title-case, and merge "Super admin" into "Admin"."""
+    if not raw:
+        return ""
+    s = raw.replace("_", " ").strip()
+    if not s:
+        return ""
+    s = s[0].upper() + s[1:].lower()
+    if s == "Super admin":
+        s = "Admin"
+    return s
+
+
 @app.route("/admin/api/permission-groups")
 @admin_required
 def admin_permission_groups():
-    """Groups of users by app access, for the Incubator Logs multi-user
-    filter's 'All users with <app> access' presets.
+    """Groups of users by role (Admin, Coach, Cx, Marketing, Sales, Strategist, etc.)
+    for the Incubator Logs multi-user filter's preset dropdown.
 
-    Returns one group per app that has at least one grant:
-        {"groups": [{"id": "app-<slug>", "label": "...", "emails": [...]}, ...]}
+    Returns:
+        {"groups": [{"id": "role-<slug>", "label": "<Role>", "emails": [...]}, ...]}
 
-    Incubator Logs reads this via its own /api/user-groups proxy, which
-    forwards the caller's session cookie so this endpoint's admin gate
-    still applies.
+    The Incubator Logs dashboard fetches this via its own /api/user-groups
+    proxy, which forwards the caller's session cookie so this admin-only
+    endpoint stays gated.
+
+    Role source: `roles` column on nest MySQL staff + `role` on custom users.
+    Normalized the same way the permissions page's role filter normalizes
+    (see admin.html: replace _ with space, title-case, merge Super admin →
+    Admin) so the two dropdowns always expose the same role vocabulary.
     """
-    apps = {a["slug"]: a["name"] for a in get_all_apps()}
-    all_perms = get_all_permissions()  # {email: [{app_slug, granted_by, created_at}, ...]}
+    # Fetch staff + custom users (same sources admin_users() uses)
+    if pool:
+        conn = pool.get_connection()
+        try:
+            staff = get_egelloc_staff(conn)
+        finally:
+            conn.close()
+    else:
+        staff = []
+    custom = get_custom_users()
 
-    # Invert to {slug: [emails]}
-    by_slug: dict[str, list[str]] = {}
-    for email, perms in all_perms.items():
-        for p in perms:
-            slug = p.get("app_slug")
-            if not slug:
-                continue
-            by_slug.setdefault(slug, []).append(email)
+    # Collect hidden users so they don't populate any group
+    from permissions import get_db as _get_pdb
+    pconn = _get_pdb()
+    try:
+        hidden = {row["email"].lower() for row in
+                  pconn.execute("SELECT email FROM hidden_users").fetchall()}
+    except Exception:
+        hidden = set()
+    pconn.close()
+
+    # Invert: {normalized_role: set(emails)}
+    by_role: dict[str, set[str]] = {}
+
+    def _add(email: str, raw_roles: str):
+        if not email:
+            return
+        if email.lower() in hidden:
+            return
+        for chunk in (raw_roles or "").split(","):
+            norm = _normalize_role(chunk)
+            if norm:
+                by_role.setdefault(norm, set()).add(email)
+
+    for s in staff:
+        _add(s.get("email", ""), s.get("roles", ""))
+    for cu in custom:
+        # Custom users store role singular; treat it as a one-role list.
+        _add(cu.get("email", ""), cu.get("role", ""))
 
     groups = []
-    # Stable order: app slugs sorted alphabetically, with hidden-from-registry
-    # slugs skipped (they still function as permission gates but don't surface
-    # as a user-facing grouping).
-    for slug in sorted(by_slug.keys()):
-        emails = sorted(set(by_slug[slug]))
-        label = f"All users with {apps.get(slug, slug)} access"
+    for label in sorted(by_role.keys()):
+        emails = sorted(by_role[label])
         groups.append({
-            "id": f"app-{slug}",
+            "id": f"role-{label.lower().replace(' ', '-')}",
             "label": label,
             "emails": emails,
         })
