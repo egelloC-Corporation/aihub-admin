@@ -117,18 +117,25 @@ await fetch(`${process.env.INTERNAL_LOGS_URL || "http://aihub-incubator-logs:301
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    // Optional: platform LOG_SECRET skips the cookie auth path — useful
-    // for server-to-server calls where there's no user session.
+    // Required for server-to-server emits (background jobs, workers, cron):
+    // /api/log expects either a valid session cookie OR this shared secret.
+    // Background tasks have no user session, so without a secret they 401.
     "X-Log-Secret": process.env.LOG_SECRET,
   },
   body: JSON.stringify({
     event_type: "feature_use",
     action: "roadmap_generated",
-    user_email: req.user?.email,       // only when no session cookie is forwarded
+    user_email: req.user?.email,       // include when you know who triggered it
     metadata: { duration_ms, status: "ok" },
   }),
 });
 ```
+
+**One-time deployment setup:** pick a random string (e.g. `openssl rand -hex 32`)
+and set `LOG_SECRET=<same-value>` in BOTH the `incubator-logs` app's `.env`
+AND every emitting app's `.env`. The secret is only needed for
+server-to-server emits; browser calls from a logged-in user authenticate
+via the session cookie automatically.
 
 ### Python
 
