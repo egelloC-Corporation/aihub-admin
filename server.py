@@ -598,6 +598,47 @@ def admin_remove_user():
     return jsonify({"status": "removed"})
 
 
+@app.route("/admin/api/permission-groups")
+@admin_required
+def admin_permission_groups():
+    """Groups of users by app access, for the Incubator Logs multi-user
+    filter's 'All users with <app> access' presets.
+
+    Returns one group per app that has at least one grant:
+        {"groups": [{"id": "app-<slug>", "label": "...", "emails": [...]}, ...]}
+
+    Incubator Logs reads this via its own /api/user-groups proxy, which
+    forwards the caller's session cookie so this endpoint's admin gate
+    still applies.
+    """
+    apps = {a["slug"]: a["name"] for a in get_all_apps()}
+    all_perms = get_all_permissions()  # {email: [{app_slug, granted_by, created_at}, ...]}
+
+    # Invert to {slug: [emails]}
+    by_slug: dict[str, list[str]] = {}
+    for email, perms in all_perms.items():
+        for p in perms:
+            slug = p.get("app_slug")
+            if not slug:
+                continue
+            by_slug.setdefault(slug, []).append(email)
+
+    groups = []
+    # Stable order: app slugs sorted alphabetically, with hidden-from-registry
+    # slugs skipped (they still function as permission gates but don't surface
+    # as a user-facing grouping).
+    for slug in sorted(by_slug.keys()):
+        emails = sorted(set(by_slug[slug]))
+        label = f"All users with {apps.get(slug, slug)} access"
+        groups.append({
+            "id": f"app-{slug}",
+            "label": label,
+            "emails": emails,
+        })
+
+    return jsonify({"groups": groups})
+
+
 @app.route("/admin/api/bulk", methods=["POST"])
 @admin_required
 def admin_bulk():
