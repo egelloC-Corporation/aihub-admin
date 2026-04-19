@@ -610,10 +610,14 @@ def admin_remove_user():
     return jsonify({"status": "removed"})
 
 
+DROPPED_ROLES = {"Strategist"}
+
+
 def _normalize_role(raw: str) -> str:
     """Match admin.html's client-side role normalization exactly:
-    replace underscores, title-case, and merge specific synonyms
-    (Super admin → Admin, Cx → Client Experience)."""
+    replace underscores, title-case each word, merge synonyms
+    (Super Admin → Admin, Cx → Client Experience), and drop retired
+    roles (DROPPED_ROLES) so they disappear from every surface."""
     if not raw:
         return ""
     s = raw.replace("_", " ").strip()
@@ -624,6 +628,8 @@ def _normalize_role(raw: str) -> str:
         s = "Admin"
     if s == "Cx":
         s = "Client Experience"
+    if s in DROPPED_ROLES:
+        return ""
     return s
 
 
@@ -1070,19 +1076,24 @@ def api_rename_user():
     return jsonify({"status": "ok"})
 
 
-# Canonical role vocabulary — the same set the admin page's role filter
-# normalizes to, and the same set the Incubator Logs Groups dropdown shows.
-# The set is a superset-of-normalized-inputs, kept explicit so the UI's role
-# picker has a fixed, discoverable list rather than derived-from-data.
-CANONICAL_ROLES = ["Admin", "Client Experience", "Coach", "Marketing", "Sales", "Strategist"]
+# Default picker options. Not a whitelist — the editor lets admins type
+# new roles freely (validated by ROLE_NAME_RE below). Listed here so
+# common roles appear as preset chips and the Incubator Logs Groups
+# dropdown has a predictable ordering.
+CANONICAL_ROLES = ["Admin", "Client Experience", "Coach", "Marketing", "Sales"]
+
+# Keep in sync with the client-side regex in admin.html. Allows letters,
+# digits, spaces, and hyphens; must start with a letter; 2–40 chars.
+ROLE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9 \-]{1,39}$")
 
 
 @app.route("/admin/api/users/update-roles", methods=["POST"])
 @admin_required
 def api_update_user_roles():
     """Override a user's roles. Stored in user_role_overrides (takes
-    precedence over Nest-sourced roles). Roles are validated against
-    the canonical set so the picker can't smuggle unknown values in.
+    precedence over Nest-sourced roles). Roles pass through the shared
+    normalizer (title-case, synonym merge, DROPPED_ROLES filter) so the
+    DB never stores retired or mis-cased values.
     Pass an empty list to remove the override and fall back to Nest."""
     body = request.get_json() or {}
     email = (body.get("email") or "").strip().lower()
@@ -1093,18 +1104,21 @@ def api_update_user_roles():
     if not isinstance(roles, list):
         return jsonify({"error": "roles must be a list"}), 400
 
-    # Validate every role against canonical set (case-insensitive)
-    canon_lower = {r.lower(): r for r in CANONICAL_ROLES}
     cleaned = []
     for r in roles:
         if not isinstance(r, str):
             continue
-        key = r.strip().lower()
-        if not key:
+        trimmed = r.strip()
+        if not trimmed:
             continue
-        if key not in canon_lower:
-            return jsonify({"error": f"unknown role: {r!r}. Allowed: {CANONICAL_ROLES}"}), 400
-        cleaned.append(canon_lower[key])
+        if not ROLE_NAME_RE.match(trimmed):
+            return jsonify({"error": f"invalid role name: {r!r}"}), 400
+        normalized = _normalize_role(trimmed)
+        if not normalized:
+            # Silently drop retired roles (DROPPED_ROLES) so the UI can
+            # resubmit whatever it showed without failing.
+            continue
+        cleaned.append(normalized)
     # Deduplicate preserving order
     seen = set()
     cleaned = [r for r in cleaned if not (r in seen or seen.add(r))]

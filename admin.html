@@ -199,6 +199,19 @@
     .role-picker-chip.active {
       background: var(--accent-dim); border-color: var(--accent); color: var(--accent);
     }
+    .role-picker-add { display: flex; gap: 4px; margin-bottom: 8px; }
+    .role-picker-add input {
+      flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      padding: 4px 8px; border-radius: 6px; font-size: 11px; font-family: inherit;
+    }
+    .role-picker-add input:focus { outline: none; border-color: var(--accent); }
+    .role-picker-add button {
+      background: none; border: 1px solid var(--border); color: var(--text-muted);
+      padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 500;
+      cursor: pointer; font-family: inherit;
+    }
+    .role-picker-add button:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
+    .role-picker-add button:disabled { opacity: 0.4; cursor: not-allowed; }
     .role-picker-actions { display: flex; justify-content: flex-end; gap: 6px; border-top: 1px solid var(--border); padding-top: 6px; }
     .role-picker-btn {
       padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: 600;
@@ -1208,18 +1221,17 @@ async function loadData() {
     pillContainer.appendChild(btn);
   });
 
-  // Populate role filter dynamically from user data
-  // Normalize: admin/super_admin/Admin → "Admin", coach/Coach → "Coach", etc.
+  // Populate role filter dynamically from user data, using the shared
+  // normalizer so Cx/CX collapses into Client Experience and dropped
+  // roles (Strategist) disappear.
   var roleMap = {}; // normalized display name → set of raw values that match
   DATA.users.forEach(u => {
     var rawRoles = [];
     if (u.roles) u.roles.split(",").forEach(r => { r = r.trim(); if (r) rawRoles.push(r); });
     if (u.role && u.role.trim()) rawRoles.push(u.role.trim());
     rawRoles.forEach(r => {
-      var normalized = r.replace(/_/g, " ").trim();
-      normalized = normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
-      // Merge "Super admin" into "Admin"
-      if (normalized === "Super admin") normalized = "Admin";
+      var normalized = normalizeRoleDisplay(r);
+      if (!normalized) return;
       if (!roleMap[normalized]) roleMap[normalized] = [];
       if (roleMap[normalized].indexOf(r) === -1) roleMap[normalized].push(r);
     });
@@ -1335,6 +1347,9 @@ function render() {
 
 // Match server-side _normalize_role() so displayed badges use the same
 // vocabulary the role picker writes back. Keep in sync with server.py.
+const DROPPED_ROLES = new Set(["Strategist"]);
+const ROLE_NAME_RE = /^[A-Za-z][A-Za-z0-9 \-]{1,39}$/;
+
 function normalizeRoleDisplay(raw) {
   if (!raw) return "";
   var s = String(raw).replace(/_/g, " ").trim();
@@ -1344,10 +1359,11 @@ function normalizeRoleDisplay(raw) {
   }).join(" ");
   if (s === "Super Admin") s = "Admin";
   if (s === "Cx") s = "Client Experience";
+  if (DROPPED_ROLES.has(s)) return "";
   return s;
 }
 
-const CANONICAL_ROLES = ["Admin", "Client Experience", "Coach", "Marketing", "Sales", "Strategist"];
+const CANONICAL_ROLES = ["Admin", "Client Experience", "Coach", "Marketing", "Sales"];
 
 function editRoles(cell, email) {
   // Already editing this cell? ignore
@@ -1366,17 +1382,58 @@ function editRoles(cell, email) {
 
   const chips = document.createElement("div");
   chips.className = "role-picker-chips";
-  CANONICAL_ROLES.forEach(role => {
+
+  // Union canonical + any custom roles already on this user, so the
+  // editor always shows what's currently assigned.
+  const chipRoles = Array.from(new Set([...CANONICAL_ROLES, ...currentSet]));
+  function addChip(role, active) {
     const chip = document.createElement("button");
     chip.type = "button";
-    chip.className = "role-picker-chip" + (currentSet.has(role) ? " active" : "");
+    chip.className = "role-picker-chip" + (active ? " active" : "");
     chip.textContent = role;
-    chip.onclick = () => {
-      chip.classList.toggle("active");
-    };
+    chip.onclick = () => { chip.classList.toggle("active"); };
     chips.appendChild(chip);
-  });
+    return chip;
+  }
+  chipRoles.forEach(role => addChip(role, currentSet.has(role)));
   picker.appendChild(chips);
+
+  const addRow = document.createElement("div");
+  addRow.className = "role-picker-add";
+  const addInput = document.createElement("input");
+  addInput.type = "text";
+  addInput.placeholder = "+ new role";
+  addInput.maxLength = 40;
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.textContent = "Add";
+  addBtn.disabled = true;
+  function commitNewRole() {
+    const normalized = normalizeRoleDisplay(addInput.value);
+    if (!normalized || !ROLE_NAME_RE.test(addInput.value.trim())) return;
+    // If the chip already exists, just activate it instead of duplicating
+    const existing = Array.from(chips.querySelectorAll(".role-picker-chip"))
+      .find(c => c.textContent === normalized);
+    if (existing) {
+      existing.classList.add("active");
+    } else {
+      addChip(normalized, true);
+    }
+    addInput.value = "";
+    addBtn.disabled = true;
+    addInput.focus();
+  }
+  addInput.oninput = () => {
+    const v = addInput.value.trim();
+    addBtn.disabled = !v || !ROLE_NAME_RE.test(v) || !normalizeRoleDisplay(v);
+  };
+  addInput.onkeydown = (e) => {
+    if (e.key === "Enter") { e.preventDefault(); if (!addBtn.disabled) commitNewRole(); }
+  };
+  addBtn.onclick = commitNewRole;
+  addRow.appendChild(addInput);
+  addRow.appendChild(addBtn);
+  picker.appendChild(addRow);
 
   const actions = document.createElement("div");
   actions.className = "role-picker-actions";
