@@ -619,11 +619,9 @@ def _normalize_role(raw: str) -> str:
     s = raw.replace("_", " ").strip()
     if not s:
         return ""
-    s = s[0].upper() + s[1:].lower()
-    if s == "Super admin":
+    s = " ".join(w[0].upper() + w[1:].lower() for w in s.split() if w)
+    if s == "Super Admin":
         s = "Admin"
-    # Nest's raw value is "CX" (uppercased to "Cx" by the title-case above).
-    # Expand to the human-readable label everywhere the role appears.
     if s == "Cx":
         s = "Client Experience"
     return s

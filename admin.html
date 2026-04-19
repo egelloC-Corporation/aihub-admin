@@ -1339,8 +1339,10 @@ function normalizeRoleDisplay(raw) {
   if (!raw) return "";
   var s = String(raw).replace(/_/g, " ").trim();
   if (!s) return "";
-  s = s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-  if (s === "Super admin") s = "Admin";
+  s = s.split(/\s+/).filter(Boolean).map(function (w) {
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  }).join(" ");
+  if (s === "Super Admin") s = "Admin";
   if (s === "Cx") s = "Client Experience";
   return s;
 }
