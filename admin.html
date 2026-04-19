@@ -1341,10 +1341,11 @@ function normalizeRoleDisplay(raw) {
   if (!s) return "";
   s = s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
   if (s === "Super admin") s = "Admin";
+  if (s === "Cx") s = "Client Experience";
   return s;
 }
 
-const CANONICAL_ROLES = ["Admin", "Coach", "Cx", "Marketing", "Sales", "Strategist"];
+const CANONICAL_ROLES = ["Admin", "Client Experience", "Coach", "Marketing", "Sales", "Strategist"];
 
 function editRoles(cell, email) {
   // Already editing this cell? ignore

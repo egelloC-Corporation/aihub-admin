@@ -612,7 +612,8 @@ def admin_remove_user():
 
 def _normalize_role(raw: str) -> str:
     """Match admin.html's client-side role normalization exactly:
-    replace underscores, title-case, and merge "Super admin" into "Admin"."""
+    replace underscores, title-case, and merge specific synonyms
+    (Super admin → Admin, Cx → Client Experience)."""
     if not raw:
         return ""
     s = raw.replace("_", " ").strip()
@@ -621,6 +622,10 @@ def _normalize_role(raw: str) -> str:
     s = s[0].upper() + s[1:].lower()
     if s == "Super admin":
         s = "Admin"
+    # Nest's raw value is "CX" (uppercased to "Cx" by the title-case above).
+    # Expand to the human-readable label everywhere the role appears.
+    if s == "Cx":
+        s = "Client Experience"
     return s
 
 
@@ -1071,7 +1076,7 @@ def api_rename_user():
 # normalizes to, and the same set the Incubator Logs Groups dropdown shows.
 # The set is a superset-of-normalized-inputs, kept explicit so the UI's role
 # picker has a fixed, discoverable list rather than derived-from-data.
-CANONICAL_ROLES = ["Admin", "Coach", "Cx", "Marketing", "Sales", "Strategist"]
+CANONICAL_ROLES = ["Admin", "Client Experience", "Coach", "Marketing", "Sales", "Strategist"]
 
 
 @app.route("/admin/api/users/update-roles", methods=["POST"])
