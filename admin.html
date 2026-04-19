@@ -1305,8 +1305,7 @@ function render() {
           return '<span class="role-badge ' + cls + '">' + r + '</span>';
         }).join("")
       : '<span class="role-badge role-empty">—</span>';
-    const editBadge = u.roles_edited ? '<span class="source-badge" title="Role overridden in admin panel">edited</span>' : '';
-    const roleCell = '<div class="user-roles editable-roles" title="Click to edit role" onclick="editRoles(this, \'' + escAttr(u.email) + '\')">' + roleBadges + editBadge + '</div>';
+    const roleCell = '<div class="user-roles editable-roles" title="Click to edit role" onclick="editRoles(this, \'' + escAttr(u.email) + '\')">' + roleBadges + '</div>';
 
     const toggles = DATA.apps.map(a => {
       const checked = u.permissions.includes(a.slug) ? "checked" : "";
