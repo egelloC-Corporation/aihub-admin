@@ -111,6 +111,56 @@ def _get_sql_drop(db_user, schema):
     ]
 
 
+_DB_MANAGED_KEYS = (
+    "DATABASE_URL", "DB_USER", "DB_PASSWORD",
+    "DB_HOST", "DB_PORT", "DB_NAME", "DB_SCHEMA",
+)
+_AUTO_HEADER = "# Incubator shared database"
+_OLD_HEADER = "# AI Hub shared database"
+
+
+def _upsert_db_block(env_path, db_user, password, schema):
+    """Replace (or append) the auto-provisioned DB block without touching
+    any other line. Previous behaviour was to append, relying on a
+    marker-based truncation in deploy.py to avoid duplicates — that
+    silently deleted user-added secrets placed after the marker. This
+    only touches DB_* / DATABASE_URL lines and the auto header comment.
+    """
+    lines = []
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            lines = f.readlines()
+
+    kept = []
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith(_AUTO_HEADER) or stripped.startswith(_OLD_HEADER):
+            continue
+        key = line.split("=", 1)[0].strip()
+        if key in _DB_MANAGED_KEYS:
+            continue
+        kept.append(line)
+
+    # Trim trailing blank lines so the fresh block isn't preceded by a gap
+    while kept and kept[-1].strip() == "":
+        kept.pop()
+
+    new_block = [
+        "\n# Incubator shared database — auto-provisioned\n",
+        f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?schema={schema}&options=-csearch_path%3D{schema}\n",
+        f"DB_USER={db_user}\n",
+        f"DB_PASSWORD={password}\n",
+        f"DB_HOST={POSTGRES_HOST}\n",
+        f"DB_PORT={POSTGRES_PORT}\n",
+        f"DB_NAME={POSTGRES_DB}\n",
+        f"DB_SCHEMA={schema}\n",
+    ]
+
+    with open(env_path, "w") as f:
+        f.writelines(kept)
+        f.writelines(new_block)
+
+
 def create_app_user(app_name, dry_run=False):
     """
     Create a scoped DB user for an app.
@@ -188,19 +238,8 @@ def create_app_user(app_name, dry_run=False):
     if has_external_db:
         print(f"  Skipping .env write — app has external DB_HOST in {env_path}")
     else:
-        db_lines = [
-            f"\n# Incubator shared database — auto-provisioned\n",
-            f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?schema={schema}&options=-csearch_path%3D{schema}\n",
-            f"DB_USER={db_user}\n",
-            f"DB_PASSWORD={password}\n",
-            f"DB_HOST={POSTGRES_HOST}\n",
-            f"DB_PORT={POSTGRES_PORT}\n",
-            f"DB_NAME={POSTGRES_DB}\n",
-            f"DB_SCHEMA={schema}\n",
-        ]
-        with open(env_path, "a") as f:
-            f.writelines(db_lines)
-        print(f"  Credentials written to {env_path}")
+        _upsert_db_block(env_path, db_user, password, schema)
+        print(f"  Credentials upserted in {env_path}")
 
     # Restrict file permissions (owner read/write only)
     if os.path.exists(env_path):

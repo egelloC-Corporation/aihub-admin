@@ -126,34 +126,15 @@ def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, d
     else:
         raise ValueError("Either repo_url or local_path is required")
 
-    # Restore preserved files. The deploy continues to call create_app_user()
-    # right after this, which appends fresh DB credentials to .env. To avoid
-    # duplicate DATABASE_URL=... lines on every redeploy, we only restore the
-    # .env if create_app_user is NOT going to overwrite it. Detection: if the
-    # preserved .env already has a DATABASE_URL line, db_provision will append
-    # a duplicate. So we strip prior auto-provisioned blocks before restoring,
-    # leaving manually-set credentials (like external DB URLs) intact.
+    # Restore preserved files verbatim. db_provision.create_app_user now
+    # upserts its DB block in place, so we don't need to strip auto-
+    # provisioned lines before restoring — every non-DB line (user-added
+    # secrets like API keys, NEST_DB_*, ADMIN_SECRET) survives regardless
+    # of whether it sat before or after the auto marker.
     if not dry_run and preserved:
         for fname, content in preserved.items():
-            if fname == ".env":
-                # Drop any auto-provisioned block (delimited by the comment
-                # written by db_provision.py) so the next run reapplies fresh
-                # credentials. Lines outside that block (manual DB_HOST etc.)
-                # survive.
-                lines = content.decode("utf-8", errors="replace").splitlines(keepends=True)
-                # Accept either the old "AI Hub" marker (pre-rename) or the new
-                # "Incubator" marker — existing apps still have .env files with
-                # the old one until their next full redeploy.
-                markers = (
-                    "# Incubator shared database — auto-provisioned\n",
-                    "# AI Hub shared database — auto-provisioned\n",
-                )
-                idxs = [lines.index(m) for m in markers if m in lines]
-                if idxs:
-                    lines = lines[: min(idxs)]
-                content = "".join(lines).encode("utf-8")
-                if not content.strip():
-                    continue
+            if not content.strip():
+                continue
             fpath = os.path.join(dest, fname)
             with open(fpath, "wb") as f:
                 f.write(content)
@@ -375,7 +356,19 @@ def _start_container(app_name, port, streamlit_port=None, dry_run=False):
         cmd.insert(-1, "--env-file")
         cmd.insert(-1, platform_env)
 
-    # Pass app-specific .env (DB credentials from provisioning)
+    # Pass per-app persistent secrets from /var/www/aihub-admin/secrets/<app>.env
+    # if present. Lives OUTSIDE the clone target so rm -rf during redeploy
+    # can't touch it, and it loads after platform.env so an app-specific key
+    # (e.g. ANTHROPIC_API_KEY) overrides the platform-wide one. Apps that
+    # don't have a secrets file are unaffected.
+    secrets_dir = os.environ.get("SECRETS_DIR", "/var/www/aihub-admin/secrets")
+    secrets_path = os.path.join(secrets_dir, f"{app_name}.env")
+    if os.path.exists(secrets_path):
+        cmd.insert(-1, "--env-file")
+        cmd.insert(-1, secrets_path)
+
+    # Pass app-specific .env (DB credentials from provisioning). Loaded last
+    # so DB_* values always win, regardless of what platform/secrets files set.
     env_path = os.path.join(APPS_DIR, app_name, ".env")
     if os.path.exists(env_path):
         cmd.insert(-1, "--env-file")
