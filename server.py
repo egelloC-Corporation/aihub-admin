@@ -1674,6 +1674,11 @@ MANAGED_DATABASES = {
         "database": DB_CONFIG["database"],
         "admin_user": os.environ.get("DB_ADMIN_USER", "doadmin"),
         "admin_password": os.environ.get("DB_ADMIN_PASSWORD", ""),
+        # Read-replica endpoint. Users + credentials propagate from the
+        # primary automatically (same DO cluster), so nothing to manage
+        # here beyond surfacing the host for sync-check. Blank = disabled.
+        "replica_host": os.environ.get("NEST_REPLICA_HOST", ""),
+        "replica_port": int(os.environ.get("NEST_REPLICA_PORT", "25060")),
     },
     "acquisition": {
         "label": "Acquisition (Sales & Marketing)",
@@ -1692,6 +1697,7 @@ DO_CONFIGS = {
     "nest": {
         "token": os.environ.get("DO_API_TOKEN_NEST", ""),
         "cluster_id": os.environ.get("DO_DB_CLUSTER_NEST", ""),
+        "replica_cluster_id": os.environ.get("DO_DB_REPLICA_NEST", ""),
     },
     "acquisition": {
         "token": os.environ.get("DO_API_TOKEN_ACQ", ""),
@@ -2025,6 +2031,104 @@ def admin_drop_db_user():
         return jsonify({"status": "ok", "dropped": username})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/admin/api/db-sync-check")
+@admin_required
+def admin_db_sync_check():
+    """Verify primary/replica parity for a managed DB. Read-only. Returns a
+    diff of:
+      - mysql.user: auth_string fingerprint per user (users are replicated
+        in-cluster, so this should always be empty — but DO occasionally
+        has replication edge cases and this flags them loudly).
+      - DO firewall rules: the panel manages rules per cluster; replica
+        firewall is independent, so drift is expected and this surfaces it.
+
+    Only implemented for 'nest' today since that's the only cluster with
+    a configured replica. Quietly returns empty diffs for others.
+    """
+    db_slug = request.args.get("db", "nest")
+    cfg = MANAGED_DATABASES.get(db_slug)
+    if not cfg:
+        return jsonify({"error": f"Unknown database: {db_slug}"}), 400
+    if cfg.get("engine") == "pg":
+        return jsonify({"error": "Sync check only supported for MySQL clusters"}), 400
+
+    replica_host = cfg.get("replica_host", "")
+    if not replica_host:
+        return jsonify({"error": f"No replica configured for {db_slug}. Set NEST_REPLICA_HOST in platform.env."}), 400
+
+    do_cfg = DO_CONFIGS.get(db_slug, {})
+    primary_cluster = do_cfg.get("cluster_id", "")
+    replica_cluster = do_cfg.get("replica_cluster_id", "")
+
+    out = {
+        "db": db_slug,
+        "primary_host": cfg["host"],
+        "replica_host": replica_host,
+        "users": {"primary_only": [], "replica_only": [], "hash_mismatch": [], "match_count": 0},
+        "firewall": {"primary_only": [], "replica_only": [], "match_count": 0},
+        "errors": [],
+    }
+
+    # --- mysql.user parity ---
+    def _mysql_users(host):
+        conn = mysql.connector.connect(
+            host=host, port=cfg["port"], database="mysql",
+            user=cfg["admin_user"], password=cfg["admin_password"],
+            ssl_disabled=False, connection_timeout=10,
+        )
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT User, Host, plugin, SHA1(authentication_string) FROM mysql.user "
+            "WHERE User NOT IN ('mysql.sys','mysql.session','mysql.infoschema') "
+            "ORDER BY User, Host"
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return {(u, h): (plugin, fp) for u, h, plugin, fp in rows}
+
+    try:
+        p_users = _mysql_users(cfg["host"])
+        r_users = _mysql_users(replica_host)
+        p_keys, r_keys = set(p_users), set(r_users)
+        out["users"]["primary_only"] = [f"{u}@{h}" for u, h in sorted(p_keys - r_keys)]
+        out["users"]["replica_only"] = [f"{u}@{h}" for u, h in sorted(r_keys - p_keys)]
+        common = p_keys & r_keys
+        mismatch = [f"{u}@{h}" for (u, h) in sorted(common) if p_users[(u, h)] != r_users[(u, h)]]
+        out["users"]["hash_mismatch"] = mismatch
+        out["users"]["match_count"] = len(common) - len(mismatch)
+    except Exception as e:
+        out["errors"].append(f"mysql.user diff failed: {type(e).__name__}: {e}")
+
+    # --- DO firewall parity ---
+    if do_cfg.get("token") and primary_cluster and replica_cluster:
+        def _do_rules(cluster_id):
+            resp = http_requests.get(
+                f"https://api.digitalocean.com/v2/databases/{cluster_id}/firewall",
+                headers={"Authorization": f"Bearer {do_cfg['token']}"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return sorted({r["value"] for r in resp.json().get("rules", [])})
+        try:
+            p_ips = set(_do_rules(primary_cluster))
+            r_ips = set(_do_rules(replica_cluster))
+            out["firewall"]["primary_only"] = sorted(p_ips - r_ips)
+            out["firewall"]["replica_only"] = sorted(r_ips - p_ips)
+            out["firewall"]["match_count"] = len(p_ips & r_ips)
+        except Exception as e:
+            out["errors"].append(f"firewall diff failed: {type(e).__name__}: {e}")
+    else:
+        out["errors"].append("DO API token or replica_cluster_id not configured — firewall check skipped")
+
+    u = out["users"]
+    f = out["firewall"]
+    out["in_sync"] = (
+        not u["primary_only"] and not u["replica_only"] and not u["hash_mismatch"]
+        and not f["primary_only"] and not f["replica_only"]
+    )
+    return jsonify(out)
 
 
 # ── Connection pool (for admin user management — reads staff from Nest DB) ──

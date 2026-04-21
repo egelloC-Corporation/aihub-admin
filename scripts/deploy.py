@@ -39,6 +39,7 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 # Import sibling scripts
 sys.path.insert(0, os.path.dirname(__file__))
 from nginx_config import add_app as nginx_add, remove_app as nginx_remove
+import db_provision
 from db_provision import create_app_user, drop_app_user
 
 
@@ -83,6 +84,14 @@ def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, d
     regenerated. Without this, every push-to-main deploy would silently
     delete the credentials and break the app on next start.
     """
+    # Validate inputs BEFORE touching the filesystem. A prior bug raised
+    # this after rmtree, which meant a bad /deploy payload would wipe the
+    # apps dir (including the preserved .env snapshot held in local scope,
+    # which is then lost when the exception unwinds) and leave the caller
+    # with no recovery path.
+    if not repo_url and not local_path:
+        raise ValueError("Either repo_url or local_path is required")
+
     dest = os.path.join(APPS_DIR, app_name)
 
     # Snapshot .env (and any other persist-list file) before wipe
@@ -117,14 +126,12 @@ def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, d
         else:
             msg = _run(["git", "clone", "--depth", "1", auth_url, dest], dry_run=dry_run)
             result_msg = msg or f"Cloned {_safe_url(repo_url)} → {dest}"
-    elif local_path:
+    else:
         abs_path = os.path.abspath(local_path)
         if dry_run:
             return f"Would copy {abs_path} → {dest}"
         shutil.copytree(abs_path, dest, dirs_exist_ok=True)
         result_msg = f"Copied {abs_path} → {dest}"
-    else:
-        raise ValueError("Either repo_url or local_path is required")
 
     # Restore preserved files verbatim. db_provision.create_app_user now
     # upserts its DB block in place, so we don't need to strip auto-
@@ -732,26 +739,17 @@ def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None,
         msg = _build_image(app_name, port=port, dry_run=dry_run)
         steps.append(msg)
 
-        # 3. Provision DB user — but skip if the app's .env already has
-        # external DB credentials. Apps like briefer (Nest MySQL),
-        # incubator-logs (Acquisition Postgres), etc. manage their own
-        # DB connections and db_provision would overwrite them with local
-        # Postgres creds, breaking the app.
+        # 3. Provision DB user — skip if the app already has an external
+        # DB in its .env (Nest MySQL, DO Postgres, replica read endpoint,
+        # etc.). Shared predicate with create_app_user so the two stay
+        # in lockstep; divergence here caused the briefer read-replica
+        # cutover to silently reprovision with local Postgres creds.
         env_path = os.path.join(APPS_DIR, app_name, ".env")
-        skip_provision = False
-        if os.path.exists(env_path):
-            with open(env_path) as ef:
-                for line in ef:
-                    if line.startswith("DB_HOST=") or line.startswith("DATABASE_URL="):
-                        val = line.split("=", 1)[1].strip()
-                        pg_host = os.environ.get("POSTGRES_HOST", "postgres")
-                        if val and val != pg_host and val != "localhost" and not val.startswith("postgresql://" + pg_host):
-                            skip_provision = True
-                            break
+        skip_provision = db_provision.has_external_db_config(env_path)
 
         db_result = {}
         if skip_provision:
-            steps.append(f"DB provisioning skipped — app has external DB in .env")
+            steps.append("DB provisioning skipped — app has external DB in .env")
         else:
             db_result = create_app_user(app_name, dry_run=dry_run)
             if "error" in db_result:

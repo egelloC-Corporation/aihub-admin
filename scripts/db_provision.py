@@ -119,6 +119,40 @@ _AUTO_HEADER = "# Incubator shared database"
 _OLD_HEADER = "# AI Hub shared database"
 
 
+def has_external_db_config(env_path):
+    """Return True if the app's .env points DB_HOST or DATABASE_URL at a
+    non-local database. Apps that set either to an external hostname (DO
+    managed Postgres, Nest MySQL, replica read endpoints, etc.) must skip
+    provision; otherwise the auto DB block would clobber their config.
+
+    Shared by deploy_app() (decides whether to call create_app_user at
+    all) and create_app_user() (belt-and-suspenders check right before
+    upsert). Keeping the two in sync prevents the kind of divergent-
+    behavior bug that bit briefer during the read-replica cutover.
+    """
+    if not os.path.exists(env_path):
+        return False
+    pg_host = POSTGRES_HOST
+    with open(env_path) as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key, val = key.strip(), val.strip()
+            if key == "DB_HOST":
+                if val and val != pg_host and val != "localhost":
+                    return True
+            elif key == "DATABASE_URL":
+                # postgresql://user:pw@host:port/db → extract host
+                if val and not val.startswith(f"postgresql://{pg_host}") \
+                        and "@localhost" not in val and f"@{pg_host}" not in val:
+                    return True
+    return False
+
+
 def _upsert_db_block(env_path, db_user, password, schema):
     """Replace (or append) the auto-provisioned DB block without touching
     any other line. Previous behaviour was to append, relying on a
@@ -214,29 +248,14 @@ def create_app_user(app_name, dry_run=False):
     cursor.close()
     conn.close()
 
-    # Write credentials to the app's .env file — but only if the .env
-    # doesn't already have manually-set DB_HOST pointing to an external
-    # database. Apps like incubator-logs connect to the Acquisition Postgres
-    # (DO managed DB), not the local aihub-postgres. Appending local creds
-    # would override those and break the app on every deploy.
+    # Write credentials to the app's .env — but skip if the app already
+    # points at an external DB (Nest MySQL, DO Postgres, etc.). Same
+    # predicate deploy_app uses, via has_external_db_config.
     env_path = os.path.join(os.path.abspath(APPS_DIR), app_name, ".env")
     os.makedirs(os.path.dirname(env_path), exist_ok=True)
 
-    has_external_db = False
-    if os.path.exists(env_path):
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("DB_HOST=") and "auto-provisioned" not in line:
-                    host_val = line.split("=", 1)[1].strip()
-                    # If DB_HOST points somewhere other than the local postgres,
-                    # the app uses an external DB — don't overwrite.
-                    if host_val and host_val != POSTGRES_HOST and host_val != "localhost":
-                        has_external_db = True
-                        break
-
-    if has_external_db:
-        print(f"  Skipping .env write — app has external DB_HOST in {env_path}")
+    if has_external_db_config(env_path):
+        print(f"  Skipping .env write — app has external DB in {env_path}")
     else:
         _upsert_db_block(env_path, db_user, password, schema)
         print(f"  Credentials upserted in {env_path}")
