@@ -10,6 +10,10 @@ services:
     env_file: .env
     environment:
       - DEPLOY_SERVICE_URL=http://deploy-service:5001
+      # Admin panel must stay on the nest primary for the Access-tab
+      # CREATE USER / DROP USER flow (replica refuses DDL with errno 1290).
+      # platform.env's DB_HOST is the replica so other apps inherit safely.
+      - DB_HOST=db-mysql-nyc1-52583-do-user-18492245-0.e.db.ondigitalocean.com
     volumes:
       - ./permissions.db:/app/permissions.db
       - ./readonly_db_users.json:/app/readonly_db_users.json
