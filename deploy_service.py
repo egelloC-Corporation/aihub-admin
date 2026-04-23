@@ -420,17 +420,27 @@ def host_users_delete(name):
         return jsonify({"error": err}), 400
 
     q_name = shlex.quote(name)
+    # Evict any lingering sessions/processes before userdel — without this,
+    # deletes issued seconds after the user's last SSH fail with
+    # "user is currently used by process" (logind keeps sessions alive
+    # briefly after disconnect). If there's no live session, these are no-ops.
+    # No `|| true` on userdel itself — we want failures to surface, not be
+    # masked into a 200 OK.
     inner = (
+        f"set -e; "
         f"if ! id {q_name} >/dev/null 2>&1; then echo 'no such user' >&2; exit 2; fi; "
         # Belt-and-suspenders: refuse to touch uid < 1000 even if the name
         # passed the PROTECTED list. The validator should have caught it.
         f"uid=$(id -u {q_name}); "
         f"if [ \"$uid\" -lt 1000 ]; then echo 'refuse: system uid' >&2; exit 3; fi; "
-        f"userdel -r {q_name} 2>&1 || true; "
+        f"loginctl terminate-user {q_name} 2>/dev/null || true; "
+        f"pkill -KILL -u {q_name} 2>/dev/null || true; "
+        f"sleep 1; "
+        f"userdel -r {q_name}; "
         f"echo ok"
     )
     try:
-        code, out, err_out = run_on_host(inner, timeout=20)
+        code, out, err_out = run_on_host(inner, timeout=25)
     except subprocess.TimeoutExpired:
         return jsonify({"error": "timed out deleting user"}), 504
 
