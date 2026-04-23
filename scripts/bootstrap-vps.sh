@@ -20,6 +20,7 @@
 #   FLASK_SECRET_KEY      default: openssl rand -hex 32
 #   POSTGRES_USER         default: aihub_admin
 #   POSTGRES_PASSWORD     default: openssl rand -hex 24
+#   REPO_BRANCH           default: main
 #   ACQ_DB_HOST, ACQ_DB_PORT, ACQ_DB_NAME,
 #   INCUBATOR_LOG_DB_USER, INCUBATOR_LOG_DB_PASSWORD   for audit logging
 
@@ -91,15 +92,17 @@ ufw --force enable
 
 # ─── 3. Clone / update the repo ────────────────────────────────────────
 REPO_URL="https://x-access-token:${GITHUB_TOKEN}@${REPO_URL_BASE}"
+REPO_BRANCH="${REPO_BRANCH:-main}"
 mkdir -p /var/www
 if [ ! -d "$REPO_DIR/.git" ]; then
-  echo "==> Cloning repo"
-  git clone "$REPO_URL" "$REPO_DIR"
+  echo "==> Cloning repo (branch: $REPO_BRANCH)"
+  git clone --branch "$REPO_BRANCH" "$REPO_URL" "$REPO_DIR"
 else
-  echo "==> Updating repo"
+  echo "==> Updating repo (branch: $REPO_BRANCH)"
   git -C "$REPO_DIR" remote set-url origin "$REPO_URL"
-  git -C "$REPO_DIR" fetch origin
-  git -C "$REPO_DIR" reset --hard origin/main
+  git -C "$REPO_DIR" fetch origin "$REPO_BRANCH"
+  git -C "$REPO_DIR" checkout "$REPO_BRANCH"
+  git -C "$REPO_DIR" reset --hard "origin/$REPO_BRANCH"
 fi
 
 # ─── 4. State files + secrets dir ──────────────────────────────────────
