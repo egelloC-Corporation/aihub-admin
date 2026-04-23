@@ -328,22 +328,54 @@ def _brand_config():
     }
 
 
+def _features_config():
+    """Per-instance feature toggles.
+
+    Defaults preserve incubator behavior. Playground disables internal-only
+    surfaces (e.g. infra_access manages DO firewall + Nest/Acq DB users —
+    irrelevant for a student-facing box).
+    """
+    def bool_env(key, default=True):
+        return os.environ.get(key, "true" if default else "false") \
+            .strip().lower() in ("1", "true", "yes", "on")
+    return {
+        "infra_access": bool_env("FEATURES_INFRA_ACCESS", True),
+    }
+
+
+def feature_required(feature):
+    """404 the route when the named feature is disabled for this instance."""
+    def decorator(f):
+        @functools.wraps(f)
+        def decorated(*args, **kwargs):
+            if not _features_config().get(feature, False):
+                return jsonify({"error": "Not available on this instance"}), 404
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
+
+
 @app.route("/auth/me")
 def auth_me():
     """Return current user info (for the frontend to display)."""
     user = session.get("user")
     if not user:
-        return jsonify({"authenticated": False, "brand": _brand_config()}), 401
+        return jsonify({"authenticated": False,
+                        "brand": _brand_config(),
+                        "features": _features_config()}), 401
     perms = get_user_permissions(user["email"])
     return jsonify({"authenticated": True, **user, "permissions": perms,
-                    "brand": _brand_config()})
+                    "brand": _brand_config(),
+                    "features": _features_config()})
 
 
 @app.route("/config/brand.js")
 def brand_js():
-    """Synchronous brand config so pages can render title/logo without flicker."""
-    payload = json.dumps(_brand_config())
-    body = f"window.AIHUB_BRAND = {payload};\n"
+    """Synchronous brand+features config so pages can render without flicker."""
+    body = (
+        f"window.AIHUB_BRAND = {json.dumps(_brand_config())};\n"
+        f"window.AIHUB_FEATURES = {json.dumps(_features_config())};\n"
+    )
     return Response(body, mimetype="application/javascript")
 
 
@@ -1885,6 +1917,7 @@ def save_readonly_users(users):
 
 @app.route("/admin/api/network-access")
 @admin_required
+@feature_required("infra_access")
 def admin_network_access():
     """List trusted sources (firewall rules) for a database."""
     db_slug = request.args.get("db", "nest")
@@ -1914,6 +1947,7 @@ def admin_network_access():
 
 @app.route("/admin/api/network-access/add", methods=["POST"])
 @admin_required
+@feature_required("infra_access")
 def admin_add_trusted_source():
     """Add an IP to the database trusted sources."""
     body = request.get_json()
@@ -1971,6 +2005,7 @@ def admin_add_trusted_source():
 
 @app.route("/admin/api/network-access/remove", methods=["POST"])
 @admin_required
+@feature_required("infra_access")
 def admin_remove_trusted_source():
     """Remove an IP from the database trusted sources."""
     body = request.get_json()
@@ -2028,6 +2063,7 @@ def admin_remove_trusted_source():
 
 @app.route("/admin/api/my-ip")
 @admin_required
+@feature_required("infra_access")
 def admin_my_ip():
     """Return the caller's public IP address."""
     ip = request.headers.get("X-Forwarded-For", request.remote_addr)
@@ -2055,6 +2091,7 @@ def admin_databases():
 
 @app.route("/admin/api/db-users")
 @admin_required
+@feature_required("infra_access")
 def admin_db_users():
     """List read-only database users created through this panel."""
     db_slug = request.args.get("db", "nest")
@@ -2071,6 +2108,7 @@ def admin_db_users():
 
 @app.route("/admin/api/db-users/create", methods=["POST"])
 @admin_required
+@feature_required("infra_access")
 def admin_create_db_user():
     """Create a read-only (SELECT only) database user."""
     body = request.get_json()
@@ -2158,6 +2196,7 @@ def admin_create_db_user():
 
 @app.route("/admin/api/db-users/drop", methods=["POST"])
 @admin_required
+@feature_required("infra_access")
 def admin_drop_db_user():
     """Drop a read-only database user (only users created through this panel)."""
     body = request.get_json()
