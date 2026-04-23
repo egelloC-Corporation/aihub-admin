@@ -382,8 +382,29 @@ def brand_js():
 
 @app.route("/hub-navbar.js")
 def hub_navbar_js():
-    """Serve the universal app-switcher navbar script."""
-    return send_from_directory(".", "hub-navbar.js", mimetype="application/javascript")
+    """Serve the app-switcher navbar script with instance config prepended.
+
+    Apps include <script src="/hub-navbar.js"> directly — they don't also
+    load /config/brand.js. Prepend window.AIHUB_BRAND + AIHUB_FEATURES so
+    the banner wordmark, favicon, and feature-gated UI pieces render with
+    the correct instance name. `|| existing value` preserves anything the
+    host page already set (e.g. admin panel's synchronous /config/brand.js).
+    """
+    path = os.path.join(os.path.dirname(__file__), "hub-navbar.js")
+    try:
+        with open(path) as f:
+            body = f.read()
+    except IOError:
+        return Response("// hub-navbar.js not found\n", status=500,
+                        mimetype="application/javascript")
+    prefix = (
+        f"window.AIHUB_BRAND = window.AIHUB_BRAND || {json.dumps(_brand_config())};\n"
+        f"window.AIHUB_FEATURES = window.AIHUB_FEATURES || {json.dumps(_features_config())};\n"
+    )
+    resp = Response(prefix + body, mimetype="application/javascript")
+    # Don't let browsers cache across instances — cheap to re-send.
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.route("/favicon.ico")
