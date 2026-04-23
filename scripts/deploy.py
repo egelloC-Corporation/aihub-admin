@@ -48,7 +48,15 @@ def _inject_github_token(url):
     if not GITHUB_TOKEN:
         return url
     if url and "github.com" in url and url.startswith("https://"):
-        return url.replace("https://github.com/", f"https://{GITHUB_TOKEN}@github.com/")
+        # Use x-access-token as the username. Required for fine-grained
+        # github_pat_* tokens (GitHub returns HTTP 500 on git clone when
+        # the token is passed as the username, even though REST API calls
+        # with the same token succeed). Classic ghp_* tokens accept either
+        # form, so this works for both.
+        return url.replace(
+            "https://github.com/",
+            f"https://x-access-token:{GITHUB_TOKEN}@github.com/",
+        )
     return url
 
 
