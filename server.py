@@ -294,6 +294,13 @@ def auth_callback():
 
 @app.route("/logout")
 def logout():
+    user = session.get("user") or {}
+    if user.get("email"):
+        log_event("auth", "logout",
+                  user_email=user.get("email"),
+                  user_name=user.get("name"),
+                  app_slug="admin",
+                  ip_address=request.headers.get("X-Forwarded-For", request.remote_addr))
     session.clear()
     return redirect(url_for("logged_out"))
 
@@ -559,6 +566,12 @@ def admin_grant():
 
     admin_email = session["user"]["email"]
     grant_permission(email, app_slug, admin_email)
+    log_event("permission", "grant_app_access",
+              user_email=admin_email,
+              user_name=session["user"].get("name"),
+              app_slug="admin",
+              detail=f"{email} → {app_slug}",
+              metadata={"target_email": email, "app_slug": app_slug})
     return jsonify({"status": "granted"})
 
 
@@ -578,6 +591,13 @@ def admin_revoke():
         return jsonify({"error": f"Cannot remove admin access from {email}"}), 403
 
     revoke_permission(email, app_slug)
+    admin_email = session["user"]["email"]
+    log_event("permission", "revoke_app_access",
+              user_email=admin_email,
+              user_name=session["user"].get("name"),
+              app_slug="admin",
+              detail=f"{email} → {app_slug}",
+              metadata={"target_email": email, "app_slug": app_slug})
     return jsonify({"status": "revoked"})
 
 
@@ -595,6 +615,12 @@ def admin_add_user():
 
     admin_email = session["user"]["email"]
     add_custom_user(email, first_name, last_name, role, admin_email)
+    log_event("user_management", "create_custom_user",
+              user_email=admin_email,
+              user_name=session["user"].get("name"),
+              app_slug="admin",
+              detail=f"{email} ({first_name} {last_name}, role={role or 'none'})",
+              metadata={"target_email": email, "name": f"{first_name} {last_name}", "role": role})
     return jsonify({"status": "added"})
 
 
@@ -607,6 +633,13 @@ def admin_remove_user():
         return jsonify({"error": "email required"}), 400
 
     remove_custom_user(email)
+    admin_email = session["user"]["email"]
+    log_event("user_management", "delete_custom_user",
+              user_email=admin_email,
+              user_name=session["user"].get("name"),
+              app_slug="admin",
+              detail=email,
+              metadata={"target_email": email})
     return jsonify({"status": "removed"})
 
 
@@ -721,11 +754,15 @@ def admin_permission_groups():
 @app.route("/admin/api/bulk", methods=["POST"])
 @admin_required
 def admin_bulk():
-    """Bulk grant/revoke permissions."""
+    """Bulk grant/revoke permissions. Logs each grant/revoke individually so
+    the audit trail matches single-action calls; an auditor can reconstruct
+    what changed without interpreting an opaque 'bulk_change' row."""
     body = request.get_json()
     actions = body.get("actions", [])
     admin_email = session["user"]["email"]
+    admin_name = session["user"].get("name")
 
+    processed = 0
     for action in actions:
         email = action.get("email", "").strip()
         app_slug = action.get("app_slug", "").strip()
@@ -734,12 +771,22 @@ def admin_bulk():
             continue
         if op == "grant":
             grant_permission(email, app_slug, admin_email)
+            log_event("permission", "grant_app_access",
+                      user_email=admin_email, user_name=admin_name, app_slug="admin",
+                      detail=f"{email} → {app_slug}",
+                      metadata={"target_email": email, "app_slug": app_slug, "source": "bulk"})
+            processed += 1
         elif op == "revoke":
             if app_slug == "admin" and email.lower() in [e.lower() for e in PROTECTED_ADMINS]:
                 continue
             revoke_permission(email, app_slug)
+            log_event("permission", "revoke_app_access",
+                      user_email=admin_email, user_name=admin_name, app_slug="admin",
+                      detail=f"{email} → {app_slug}",
+                      metadata={"target_email": email, "app_slug": app_slug, "source": "bulk"})
+            processed += 1
 
-    return jsonify({"status": "ok", "processed": len(actions)})
+    return jsonify({"status": "ok", "processed": processed})
 
 
 # ── App Registry: submission + approval ──
@@ -870,6 +917,12 @@ def api_submit_app():
         return jsonify(result), 409
     if validation:
         result["validation"] = validation
+    log_event("app_registry", "submit_app",
+              user_email=submitted_by,
+              user_name=session["user"].get("name"),
+              app_slug=slug,
+              detail=f"{name} ({repo_url})",
+              metadata={"port": port, "repo_url": repo_url, "repo_subdir": repo_subdir})
     return jsonify(result)
 
 
@@ -908,6 +961,12 @@ def api_approve_app():
     result = approve_submission(submission_id, reviewed_by)
     if "error" in result:
         return jsonify(result), 404
+
+    log_event("app_registry", "approve_app",
+              user_email=reviewed_by,
+              user_name=session["user"].get("name"),
+              app_slug=result.get("slug") or str(submission_id),
+              metadata={"submission_id": submission_id})
 
     # Auto-deploy after approval
     try:
@@ -953,6 +1012,12 @@ def api_edit_app():
     )
     if "error" in result:
         return jsonify(result), 400
+    log_event("app_registry", "edit_app",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug=result.get("slug") or str(submission_id),
+              metadata={"submission_id": submission_id,
+                        "fields": [k for k in ("slug","name","description","icon","port","streamlit_port","repo_url","env_keys") if body.get(k) is not None]})
     return jsonify(result)
 
 
@@ -970,6 +1035,12 @@ def api_reject_app():
     result = reject_submission(submission_id, reviewed_by, reason=reason)
     if "error" in result:
         return jsonify(result), 404
+    log_event("app_registry", "reject_app",
+              user_email=reviewed_by,
+              user_name=session["user"].get("name"),
+              app_slug=result.get("slug") or str(submission_id),
+              detail=reason or "(no reason)",
+              metadata={"submission_id": submission_id, "reason": reason})
     return jsonify(result)
 
 
@@ -985,6 +1056,12 @@ def api_delete_app():
     result = delete_submission(submission_id)
     if "error" in result:
         return jsonify(result), 404
+
+    log_event("app_registry", "delete_app",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug=result.get("slug") or str(submission_id),
+              metadata={"submission_id": submission_id, "was_live": bool(result.get("was_live"))})
 
     # If the app was live, trigger undeploy to clean up containers/routes/DB
     if result.get("was_live"):
@@ -1049,6 +1126,11 @@ def api_hide_user():
     )
     conn.commit()
     conn.close()
+    log_event("user_management", "hide_user",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug="admin", detail=email,
+              metadata={"target_email": email})
     return jsonify({"status": "ok"})
 
 
@@ -1078,6 +1160,12 @@ def api_rename_user():
     )
     conn.commit()
     conn.close()
+    log_event("user_management", "rename_user",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug="admin",
+              detail=f"{email} → {first_name} {last_name}",
+              metadata={"target_email": email, "new_name": f"{first_name} {last_name}"})
     return jsonify({"status": "ok"})
 
 
@@ -1145,6 +1233,12 @@ def api_update_user_roles():
         )
     conn.commit()
     conn.close()
+    log_event("user_management", "update_user_roles",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug="admin",
+              detail=f"{email} → {', '.join(cleaned) if cleaned else '(reverted to Nest)'}",
+              metadata={"target_email": email, "roles": cleaned})
     return jsonify({"status": "ok", "roles": cleaned})
 
 
@@ -1174,6 +1268,11 @@ def api_update_app_status():
         conn.execute("UPDATE app_submissions SET status = 'approved' WHERE id = ?", (row["id"],))
         conn.commit()
     conn.close()
+    log_event("app_registry", "update_app_status",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug=slug, detail=status,
+              metadata={"status": status})
     return jsonify({"status": "ok"})
 
 
@@ -1192,6 +1291,14 @@ def api_deploy_app():
 
     if not app_name or not port:
         return jsonify({"error": "app_name and port are required"}), 400
+
+    log_event("app_deploy", "deploy_start" if not dry_run else "deploy_dry_run",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug=app_name,
+              detail=f"port {port}" + (" (dry run)" if dry_run else ""),
+              metadata={"port": port, "streamlit_port": streamlit_port,
+                        "repo_url": repo_url, "dry_run": bool(dry_run)})
 
     # If streamlit_port isn't provided by caller, look it up from the submission row
     if streamlit_port in (None, "", 0, "0"):
@@ -1235,6 +1342,11 @@ def api_undeploy_app():
 
     if not app_name:
         return jsonify({"error": "app_name is required"}), 400
+
+    log_event("app_deploy", "undeploy_start",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug=app_name)
 
     try:
         resp = http_requests.post(
@@ -1514,6 +1626,12 @@ def api_set_ip_label():
     labels = load_ip_labels()
     labels[key] = {"label": label, "date": date}
     save_ip_labels(labels)
+    log_event("infra_config", "set_ip_label",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug="admin",
+              detail=f"{key} → {label}",
+              metadata={"key": key, "label": label})
     return jsonify({"status": "ok"})
 
 
@@ -1525,6 +1643,11 @@ def api_remove_ip_label():
     labels = load_ip_labels()
     labels.pop(key, None)
     save_ip_labels(labels)
+    log_event("infra_config", "remove_ip_label",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug="admin", detail=key,
+              metadata={"key": key})
     return jsonify({"status": "ok"})
 
 
@@ -1588,6 +1711,12 @@ def admin_ssh_alias():
         aliases.pop(str(key_id), None)
     save_ssh_aliases(aliases)
 
+    log_event("infra_access", "set_ssh_alias",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug="admin",
+              detail=f"key {key_id} → {alias or '(cleared)'}",
+              metadata={"key_id": key_id, "alias": alias})
     return jsonify({"status": "ok"})
 
 
@@ -1613,6 +1742,12 @@ def admin_add_ssh_key():
         f.write(f"\n{key}\n")
 
     log.info("SSH key added by %s: %s", session["user"]["email"], comment or parts[-1])
+    log_event("infra_access", "add_ssh_key",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug="admin",
+              detail=comment or parts[-1],
+              metadata={"comment": comment, "key_type": parts[0] if parts else ""})
     return jsonify({"status": "ok"})
 
 
@@ -1657,6 +1792,12 @@ def admin_remove_ssh_key():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+    log_event("infra_access", "remove_ssh_key",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug="admin",
+              detail=confirm_comment or removed[:40],
+              metadata={"key_id": key_id, "comment": confirm_comment})
     return jsonify({"status": "ok", "removed": confirm_comment or removed[:40]})
 
 
@@ -1797,6 +1938,12 @@ def admin_add_trusted_source():
         resp.raise_for_status()
 
         log.info("Trusted source added by %s: %s on %s", session["user"]["email"], ip, db_slug)
+        log_event("infra_network", "add_trusted_ip",
+                  user_email=session["user"]["email"],
+                  user_name=session["user"].get("name"),
+                  app_slug="admin",
+                  detail=f"{ip} on {db_slug}",
+                  metadata={"ip": ip, "db": db_slug})
         return jsonify({"status": "ok"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1848,6 +1995,12 @@ def admin_remove_trusted_source():
         resp.raise_for_status()
 
         log.info("Trusted source removed by %s: %s from %s", session["user"]["email"], ip, db_slug)
+        log_event("infra_network", "remove_trusted_ip",
+                  user_email=session["user"]["email"],
+                  user_name=session["user"].get("name"),
+                  app_slug="admin",
+                  detail=f"{ip} from {db_slug}",
+                  metadata={"ip": ip, "db": db_slug})
         return jsonify({"status": "ok"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1962,6 +2115,12 @@ def admin_create_db_user():
         save_readonly_users(existing)
 
         log.info("Read-only DB user created by %s: %s on %s", session["user"]["email"], username, db_slug)
+        log_event("db_user", "create_readonly_user",
+                  user_email=session["user"]["email"],
+                  user_name=session["user"].get("name"),
+                  app_slug="admin",
+                  detail=f"{username} on {db_slug}",
+                  metadata={"username": username, "db": db_slug})
 
         return jsonify({
             "status": "ok",
@@ -2028,6 +2187,12 @@ def admin_drop_db_user():
         save_readonly_users(existing)
 
         log.info("Read-only DB user dropped by %s: %s from %s", session["user"]["email"], username, db_slug)
+        log_event("db_user", "drop_readonly_user",
+                  user_email=session["user"]["email"],
+                  user_name=session["user"].get("name"),
+                  app_slug="admin",
+                  detail=f"{username} from {db_slug}",
+                  metadata={"username": username, "db": db_slug})
         return jsonify({"status": "ok", "dropped": username})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
