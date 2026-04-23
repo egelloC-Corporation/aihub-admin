@@ -766,7 +766,7 @@
 <div class="container">
   <div class="tabs">
     <button class="tab active" data-tab="permissions" onclick="switchTab('permissions')">Permissions</button>
-    <button class="tab" data-tab="infrastructure" onclick="switchTab('infrastructure')">Infrastructure Access</button>
+    <button class="tab" data-tab="infrastructure" data-feature="infra_access" onclick="switchTab('infrastructure')">Infrastructure Access</button>
     <button class="tab" data-tab="registry" onclick="switchTab('registry')">App Registry</button>
   </div>
 
@@ -2921,6 +2921,17 @@ function updateSubmissionStatus(slug, newStatus) {
     loadSubmissions();
   });
 }
+</script>
+<script>
+// Hide tabs whose feature flag is disabled for this instance.
+(function() {
+  var features = window.AIHUB_FEATURES || {};
+  document.querySelectorAll(".tab[data-feature]").forEach(function(btn) {
+    if (features[btn.getAttribute("data-feature")] === false) {
+      btn.style.display = "none";
+    }
+  });
+})();
 </script>
 <script src="/hub-navbar.js" defer></script>
 </body>
