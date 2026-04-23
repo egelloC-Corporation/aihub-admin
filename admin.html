@@ -893,7 +893,7 @@
     <div class="getting-started" style="cursor:pointer;" onclick="var b=this.querySelector('.getting-started-body');var a=this.querySelector('.getting-started-arrow');if(b.style.display==='none'){b.style.display='block';a.textContent='\u25bc';}else{b.style.display='none';a.textContent='\u25b6';}">
       <div class="getting-started-title" style="display:flex;align-items:center;gap:8px;">
         <span class="getting-started-arrow" style="font-size:12px;color:var(--text-dim);">&#x25b6;</span>
-        New here? Set up your app for Incubator
+        New here? Set up your app for <span data-brand-name>Incubator</span>
         <span class="badge">Setup guide</span>
       </div>
       <div class="getting-started-body" style="display:none;" onclick="event.stopPropagation();">
@@ -905,10 +905,10 @@
             <span>Paste this into Claude from your project folder</span>
             <span class="copy-hint" id="copyHint">Click to copy</span>
           </div>
-          <div class="prompt-text" id="claudePrompt">I need to deploy my app on Incubator at incubator.egelloc.com. The platform handles SSO, port assignment, and deployment automatically. Walk me through the setup.
+          <div class="prompt-text" id="claudePrompt" data-brand-template>I need to deploy my app on {INSTANCE_NAME} at {INSTANCE_DOMAIN}. The platform handles SSO, port assignment, and deployment automatically. Walk me through the setup.
 
 ## Platform info
-- Apps are served at incubator.egelloc.com/APP_SLUG/ behind a reverse proxy (nginx). The proxy strips the /APP_SLUG prefix before forwarding to the container, so the app sees root-relative paths (/, /api/..., etc.).
+- Apps are served at {INSTANCE_DOMAIN}/APP_SLUG/ behind a reverse proxy (nginx). The proxy strips the /APP_SLUG prefix before forwarding to the container, so the app sees root-relative paths (/, /api/..., etc.).
 - Auth is handled by the platform's Google OAuth SSO. Apps verify sessions by calling AIHUB_AUTH_URL (set at runtime, reads the platform session cookie).
 - Ports are auto-assigned — I do NOT need to pick one. The deploy system assigns a free port and sets the PORT env var.
 - After approval, every push to the GitHub main branch auto-deploys.
@@ -924,10 +924,10 @@
 
 3. If my app serves HTML, add this before &lt;/body&gt; on every page:
    &lt;script src="/hub-navbar.js" defer&gt;&lt;/script&gt;
-   This script does three things: loads the Incubator app-switcher drawer, injects the platform favicon, and renders the platform header banner (egg + "Incubator" wordmark + divider + app name) at the top of the page. Clicking the wordmark goes to /launcher; clicking the app name goes to the app's own root.
+   This script does three things: loads the {INSTANCE_NAME} app-switcher drawer, injects the platform favicon, and renders the platform header banner (egg + "{INSTANCE_NAME}" wordmark + divider + app name) at the top of the page. Clicking the wordmark goes to /launcher; clicking the app name goes to the app's own root.
 
    PLATFORM CHROME CONTRACT — what the platform owns vs. what your app owns:
-   - Do NOT render your own "Incubator" brand or your own app name in your header — the banner already shows them.
+   - Do NOT render your own "{INSTANCE_NAME}" brand or your own app name in your header — the banner already shows them.
    - Do NOT add &lt;link rel="icon"&gt; tags — the script manages favicons centrally.
    - DO put app-specific controls (selectors, filters, tabs, search) in your own sub-header below the banner, or integrated into your main view.
    - CSS: the banner is sticky at top with height 48px (44px on mobile). If you use `position: sticky; top: 0` inside your app, change it to `top: 48px` so it stacks below the banner.
@@ -993,7 +993,7 @@
 
 10. Add a GitHub webhook for auto-deploy after approval:
     Repo → Settings → Webhooks → Add webhook
-    Payload URL: https://incubator.egelloc.com/webhook/github
+    Payload URL: https://{INSTANCE_DOMAIN}/webhook/github
     Content type: application/json
     Secret: ask an admin
     Events: just push
@@ -1024,7 +1024,7 @@
           <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:8px 0;font-size:13px;">
             Go to your repo &rarr; <strong>Settings</strong> &rarr; <strong>Webhooks</strong> &rarr; <strong>Add webhook</strong><br><br>
             <table style="font-size:12px;color:var(--text-muted);">
-              <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Payload URL</td><td><code>https://incubator.egelloc.com/webhook/github</code></td></tr>
+              <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Payload URL</td><td><code data-brand-template>https://{INSTANCE_DOMAIN}/webhook/github</code></td></tr>
               <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Content type</td><td><code>application/json</code></td></tr>
               <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Secret</td><td>Ask an admin for the webhook secret</td></tr>
               <tr><td style="padding:2px 12px 2px 0;color:var(--text);">Events</td><td>Just the <strong>push</strong> event</td></tr>
@@ -1120,7 +1120,7 @@
       <!-- Register an App form -->
       <div class="registry-card">
         <h3>Register an App</h3>
-        <div class="subtitle">Submit a new app for admin review. Once approved, it will be deployed to Incubator.</div>
+        <div class="subtitle">Submit a new app for admin review. Once approved, it will be deployed to <span data-brand-name>Incubator</span>.</div>
 
         <div class="form-success" id="submitSuccess">App submitted for review!</div>
 
@@ -3062,6 +3062,24 @@ function updateSubmissionStatus(slug, newStatus) {
     if (features[btn.getAttribute("data-feature")] === false) {
       btn.style.display = "none";
     }
+  });
+})();
+
+// Brand token substitution — replaces {INSTANCE_NAME} / {INSTANCE_DOMAIN}
+// inside any element marked data-brand-template, and sets textContent of
+// data-brand-name elements. Defaults preserve incubator wording if
+// /config/brand.js didn't load for some reason.
+(function() {
+  var b = window.AIHUB_BRAND || {};
+  var name = b.name || "Incubator";
+  var domain = b.domain || "incubator.egelloc.com";
+  document.querySelectorAll("[data-brand-template]").forEach(function(el) {
+    el.textContent = el.textContent
+      .replace(/\{INSTANCE_NAME\}/g, name)
+      .replace(/\{INSTANCE_DOMAIN\}/g, domain);
+  });
+  document.querySelectorAll("[data-brand-name]").forEach(function(el) {
+    el.textContent = name;
   });
 })();
 </script>
