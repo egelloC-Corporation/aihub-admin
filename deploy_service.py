@@ -396,7 +396,22 @@ def host_users_create():
         f"chown -R {q_name}:{q_name} /home/{q_name}/.ssh; "
     )
     if grant_sudo:
-        inner += f"usermod -aG sudo {q_name}; "
+        # SSH-key-only users have no password, so sudo group alone gives them
+        # "sudo: a password is required" (useless). Install a sudoers.d entry
+        # for NOPASSWD — matches the cloud-init `ubuntu` user pattern.
+        # visudo -c validates syntax; if it fails we remove the file and
+        # bail so we don't leave sudo in a broken state.
+        #
+        # name already passed the USERNAME_RE regex, so interpolating it
+        # into the path is safe. We still shlex.quote the path before the shell.
+        sudoers_path = shlex.quote(f"/etc/sudoers.d/aihub-{name}")
+        inner += (
+            f"usermod -aG sudo {q_name}; "
+            f"printf '%s ALL=(ALL) NOPASSWD:ALL\\n' {q_name} > {sudoers_path}; "
+            f"chmod 0440 {sudoers_path}; "
+            f"visudo -cf {sudoers_path} >/dev/null || "
+            f"{{ rm -f {sudoers_path}; echo 'sudoers validation failed' >&2; exit 5; }}; "
+        )
     inner += "echo ok"
 
     try:
@@ -437,6 +452,8 @@ def host_users_delete(name):
         f"pkill -KILL -u {q_name} 2>/dev/null || true; "
         f"sleep 1; "
         f"userdel -r {q_name}; "
+        # Remove any sudoers.d entry we installed on create. Safe if absent.
+        f"rm -f /etc/sudoers.d/aihub-{name}; "
         f"echo ok"
     )
     try:
