@@ -319,14 +319,32 @@ def logged_out():
     )
 
 
+def _brand_config():
+    """Instance branding — lets the same codebase render as Incubator or Playground."""
+    return {
+        "name":     os.environ.get("INSTANCE_NAME", "Incubator"),
+        "tagline":  os.environ.get("INSTANCE_TAGLINE", "Where tools hatch."),
+        "logo_url": os.environ.get("INSTANCE_LOGO_URL", "/assets/incubator-logo.png"),
+    }
+
+
 @app.route("/auth/me")
 def auth_me():
     """Return current user info (for the frontend to display)."""
     user = session.get("user")
     if not user:
-        return jsonify({"authenticated": False}), 401
+        return jsonify({"authenticated": False, "brand": _brand_config()}), 401
     perms = get_user_permissions(user["email"])
-    return jsonify({"authenticated": True, **user, "permissions": perms})
+    return jsonify({"authenticated": True, **user, "permissions": perms,
+                    "brand": _brand_config()})
+
+
+@app.route("/config/brand.js")
+def brand_js():
+    """Synchronous brand config so pages can render title/logo without flicker."""
+    payload = json.dumps(_brand_config())
+    body = f"window.AIHUB_BRAND = {payload};\n"
+    return Response(body, mimetype="application/javascript")
 
 
 @app.route("/hub-navbar.js")
