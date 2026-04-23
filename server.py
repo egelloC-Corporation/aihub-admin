@@ -1851,6 +1851,72 @@ def admin_remove_ssh_key():
     return jsonify({"status": "ok", "removed": confirm_comment or removed[:40]})
 
 
+# ── VPS host users ──
+# Thin proxies over deploy-service's /host-users endpoints. Deploy-service
+# is the only component that can shell into the host (via the nsenter
+# pattern), so all mutations route through it. All gated by @admin_required
+# and audit-logged.
+
+def _proxy_deploy(method, path, json_body=None, timeout=60):
+    """Forward a request to deploy-service and mirror its (status, json)."""
+    url = f"{DEPLOY_SERVICE_URL}{path}"
+    try:
+        resp = http_requests.request(method, url, json=json_body, timeout=timeout)
+    except http_requests.RequestException as e:
+        return jsonify({"error": f"deploy-service unreachable: {e}"}), 502
+    try:
+        return jsonify(resp.json()), resp.status_code
+    except ValueError:
+        return jsonify({"error": "deploy-service returned non-JSON",
+                        "body": resp.text[:400]}), 502
+
+
+@app.route("/admin/api/vps-users")
+@admin_required
+def admin_vps_users_list():
+    """List VPS shell users (proxy → deploy-service)."""
+    return _proxy_deploy("GET", "/host-users")
+
+
+@app.route("/admin/api/vps-users", methods=["POST"])
+@admin_required
+def admin_vps_users_create():
+    """Create a VPS shell user with one SSH pubkey."""
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    pubkey = (body.get("pubkey") or "").strip()
+    grant_sudo = bool(body.get("sudo", False))
+
+    resp, status = _proxy_deploy(
+        "POST", "/host-users",
+        json_body={"name": name, "pubkey": pubkey, "sudo": grant_sudo},
+    )
+    if status in (200, 201):
+        log_event("infra_access", "create_vps_user",
+                  user_email=session["user"]["email"],
+                  user_name=session["user"].get("name"),
+                  app_slug="admin",
+                  detail=f"{name} (sudo={grant_sudo})",
+                  metadata={"name": name, "sudo": grant_sudo,
+                            "key_type": pubkey.split()[0] if pubkey else ""})
+    return resp, status
+
+
+@app.route("/admin/api/vps-users/<name>", methods=["DELETE"])
+@admin_required
+def admin_vps_users_delete(name):
+    """Delete a VPS shell user (userdel -r)."""
+    resp, status = _proxy_deploy("DELETE", f"/host-users/{name}")
+    if status == 200:
+        log_event("infra_access", "delete_vps_user",
+                  user_email=session["user"]["email"],
+                  user_name=session["user"].get("name"),
+                  app_slug="admin",
+                  detail=name,
+                  metadata={"name": name})
+    return resp, status
+
+
 # ── Read-only DB user management ──
 # Tracks users created through this panel in a local JSON file.
 # Only these users are shown/manageable — system users are never touched.

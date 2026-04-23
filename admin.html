@@ -767,6 +767,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="permissions" onclick="switchTab('permissions')">Permissions</button>
     <button class="tab" data-tab="infrastructure" data-feature="infra_access" onclick="switchTab('infrastructure')">Infrastructure Access</button>
+    <button class="tab" data-tab="vps-users" onclick="switchTab('vps-users')">VPS Users</button>
     <button class="tab" data-tab="registry" onclick="switchTab('registry')">App Registry</button>
   </div>
 
@@ -844,6 +845,48 @@
 
     </div>
   </div><!-- end tab-infrastructure -->
+
+  <div class="tab-panel" id="tab-vps-users">
+    <div style="display:grid;grid-template-columns:minmax(0,380px) 1fr;gap:16px;">
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;">
+        <h3 style="margin:0 0 4px 0;font-size:15px;">Add a VPS user</h3>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">
+          Creates a Linux account on this box with the given key in <code>~/.ssh/authorized_keys</code>.
+        </div>
+        <form id="vpsAddForm" onsubmit="return createVpsUser(event)">
+          <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;">Username</label>
+          <input name="name" required pattern="[a-z_][a-z0-9_-]{0,30}" title="lowercase letters, digits, dash, underscore; starts with letter or underscore"
+                 style="width:100%;padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;margin-bottom:10px;">
+
+          <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;">SSH public key</label>
+          <textarea name="pubkey" required rows="4" placeholder="ssh-ed25519 AAAA... user@host"
+                    style="width:100%;padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:ui-monospace,monospace;font-size:12px;resize:vertical;margin-bottom:10px;"></textarea>
+
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);margin-bottom:14px;cursor:pointer;">
+            <input type="checkbox" name="sudo"> Grant sudo access
+          </label>
+
+          <button type="submit" id="vpsAddBtn"
+                  style="width:100%;padding:8px 14px;background:var(--accent,#4f8ff7);color:white;border:0;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;">
+            Create user
+          </button>
+          <div id="vpsAddMsg" style="margin-top:10px;font-size:12px;min-height:14px;"></div>
+        </form>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;min-width:0;">
+        <h3 style="margin:0 0 12px 0;font-size:15px;display:flex;justify-content:space-between;align-items:center;">
+          Users
+          <button onclick="loadVpsUsers()" style="font-size:12px;padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text-muted);cursor:pointer;">Refresh</button>
+        </h3>
+        <div id="vpsUsersTable">
+          <div style="color:var(--text-muted);font-size:13px;padding:20px 0;">Loading…</div>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- end tab-vps-users -->
 
   <div class="tab-panel" id="tab-registry">
 
@@ -1822,11 +1865,13 @@ document.getElementById("accessFilter").addEventListener("change", render);
 var TAB_PATHS = {
   permissions: "/admin",
   infrastructure: "/admin/infrastructure",
+  "vps-users": "/admin/vps-users",
   registry: "/admin/apps",
 };
 var PATH_TO_TAB = {
   "/admin": "permissions",
   "/admin/infrastructure": "infrastructure",
+  "/admin/vps-users": "vps-users",
   "/admin/apps": "registry",
 };
 
@@ -1846,9 +1891,96 @@ function switchTab(tab, pushState) {
   if (tab === "infrastructure") {
     loadDBUsers();
   }
+  if (tab === "vps-users") {
+    loadVpsUsers();
+  }
   if (tab === "registry") {
     loadSubmissions();
   }
+}
+
+// ── VPS Users tab ──
+function loadVpsUsers() {
+  var box = document.getElementById("vpsUsersTable");
+  fetch("/admin/api/vps-users").then(function(r) {
+    return r.json().then(function(d) { return { ok: r.ok, d: d }; });
+  }).then(function(res) {
+    if (!res.ok) {
+      box.innerHTML = '<div style="color:#e06b6b;font-size:13px;">Error: ' + escHtml(res.d.error || "failed") + '</div>';
+      return;
+    }
+    var users = res.d.users || [];
+    if (users.length === 0) {
+      box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:20px 0;">No VPS users yet. Create one on the left.</div>';
+      return;
+    }
+    box.innerHTML =
+      '<table class="db-table" style="width:100%;"><thead><tr>' +
+      '<th>Name</th><th>UID</th><th>Sudo</th><th>Keys</th><th style="width:80px;"></th>' +
+      '</tr></thead><tbody>' +
+      users.map(function(u) {
+        return '<tr>' +
+          '<td><code style="font-size:12px;">' + escHtml(u.name) + '</code></td>' +
+          '<td style="font-size:12px;color:var(--text-muted);">' + u.uid + '</td>' +
+          '<td style="font-size:12px;">' + (u.sudo ? '<span style="color:#e0a45a;">yes</span>' : '<span style="color:var(--text-muted);">no</span>') + '</td>' +
+          '<td style="font-size:12px;color:var(--text-muted);">' + u.keys + '</td>' +
+          '<td style="text-align:right;"><button class="key-remove" onclick="deleteVpsUser(\'' + escHtml(u.name) + '\')">Delete</button></td>' +
+        '</tr>';
+      }).join("") +
+      '</tbody></table>';
+  }).catch(function(e) {
+    box.innerHTML = '<div style="color:#e06b6b;font-size:13px;">Network error: ' + escHtml(String(e)) + '</div>';
+  });
+}
+
+function createVpsUser(e) {
+  e.preventDefault();
+  var form = e.target;
+  var msg = document.getElementById("vpsAddMsg");
+  var btn = document.getElementById("vpsAddBtn");
+  var body = {
+    name: form.name.value.trim(),
+    pubkey: form.pubkey.value.trim(),
+    sudo: form.sudo.checked,
+  };
+  msg.textContent = ""; msg.style.color = "";
+  btn.disabled = true;
+  fetch("/admin/api/vps-users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(function(r) {
+    return r.json().then(function(d) { return { ok: r.ok, d: d }; });
+  }).then(function(res) {
+    btn.disabled = false;
+    if (res.ok) {
+      msg.textContent = "Created " + res.d.name + (res.d.sudo ? " (sudo)" : "");
+      msg.style.color = "#5ac27a";
+      form.reset();
+      loadVpsUsers();
+    } else {
+      msg.textContent = res.d.error || "Failed";
+      msg.style.color = "#e06b6b";
+    }
+  }).catch(function(e) {
+    btn.disabled = false;
+    msg.textContent = "Network error: " + String(e);
+    msg.style.color = "#e06b6b";
+  });
+  return false;
+}
+
+function deleteVpsUser(name) {
+  if (!confirm("Delete user " + name + "? This runs userdel -r (removes home directory).")) return;
+  fetch("/admin/api/vps-users/" + encodeURIComponent(name), { method: "DELETE" })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+    .then(function(res) {
+      if (res.ok) {
+        loadVpsUsers();
+      } else {
+        alert(res.d.error || "Failed");
+      }
+    });
 }
 
 // Restore tab from URL on page load
