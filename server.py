@@ -197,7 +197,7 @@ def audit_log_request(response):
 
 
 # ── Google OAuth SSO ──
-ALLOWED_DOMAIN = "egelloc.com"
+ALLOWED_DOMAIN = os.environ.get("ALLOWED_EMAIL_DOMAIN", "egelloc.com")
 
 oauth = OAuth(app)
 google = oauth.register(
@@ -1845,7 +1845,9 @@ DO_CONFIGS = {
         "cluster_id": os.environ.get("DO_DB_CLUSTER_ACQ", ""),
     },
 }
-PROTECTED_IPS = ["165.232.155.132"]  # Droplet — never removable
+PROTECTED_IPS = [ip.strip() for ip in os.environ.get(
+    "PROTECTED_IPS", "165.232.155.132"
+).split(",") if ip.strip()]  # Droplet IPs — never removable from DB firewall
 
 READONLY_USERS_FILE = os.path.join(os.path.dirname(__file__), "readonly_db_users.json")
 
