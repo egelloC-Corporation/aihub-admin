@@ -38,6 +38,7 @@ POSTGRES_USER = os.environ.get("POSTGRES_USER", "aihub_admin")
 POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "aihub_local_dev")
 
 APPS_DIR = os.environ.get("APPS_DIR", os.path.join(os.path.dirname(__file__), "..", "apps"))
+SECRETS_DIR = os.environ.get("SECRETS_DIR", "/var/www/aihub-admin/secrets")
 
 
 def _generate_password(length=32):
@@ -119,17 +120,11 @@ _AUTO_HEADER = "# Incubator shared database"
 _OLD_HEADER = "# AI Hub shared database"
 
 
-def has_external_db_config(env_path):
-    """Return True if the app's .env points DB_HOST or DATABASE_URL at a
-    non-local database. Apps that set either to an external hostname (DO
-    managed Postgres, Nest MySQL, replica read endpoints, etc.) must skip
-    provision; otherwise the auto DB block would clobber their config.
-
-    Shared by deploy_app() (decides whether to call create_app_user at
-    all) and create_app_user() (belt-and-suspenders check right before
-    upsert). Keeping the two in sync prevents the kind of divergent-
-    behavior bug that bit briefer during the read-replica cutover.
-    """
+def _env_points_external(env_path):
+    """Scan one env file for an external DB pointer (DB_HOST or DATABASE_URL
+    that resolves to something other than the local aihub-postgres). Returns
+    True on first hit. Returns False if the file is missing or empty of
+    relevant keys."""
     if not os.path.exists(env_path):
         return False
     pg_host = POSTGRES_HOST
@@ -150,6 +145,37 @@ def has_external_db_config(env_path):
                 if val and not val.startswith(f"postgresql://{pg_host}") \
                         and "@localhost" not in val and f"@{pg_host}" not in val:
                     return True
+    return False
+
+
+def has_external_db_config(env_path, secrets_path=None):
+    """Return True if the app's config points DB_HOST or DATABASE_URL at a
+    non-local database. Checks apps/<app>/.env AND secrets/<app>.env — apps
+    that keep DB creds in the persistent secrets dir (the modern pattern)
+    would otherwise get silently reprovisioned with local creds on every
+    redeploy.
+
+    Shared by deploy_app() (decides whether to call create_app_user at
+    all) and create_app_user() (belt-and-suspenders check right before
+    upsert). Keeping the two in sync prevents the kind of divergent-
+    behavior bug that bit briefer during the read-replica cutover.
+
+    If secrets_path is None, it's inferred from env_path: given
+    apps/<app>/.env, the matching secrets file is SECRETS_DIR/<app>.env.
+    """
+    if _env_points_external(env_path):
+        return True
+
+    if secrets_path is None:
+        # apps/<app>/.env → <app> → SECRETS_DIR/<app>.env
+        app_dir = os.path.dirname(env_path)
+        app_name = os.path.basename(app_dir)
+        if app_name:
+            secrets_path = os.path.join(SECRETS_DIR, f"{app_name}.env")
+
+    if secrets_path and _env_points_external(secrets_path):
+        return True
+
     return False
 
 
