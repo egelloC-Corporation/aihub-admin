@@ -371,23 +371,26 @@ def _start_container(app_name, port, streamlit_port=None, dry_run=False):
         cmd.insert(-1, "--env-file")
         cmd.insert(-1, platform_env)
 
+    # Pass app-specific .env next (DB credentials from provisioning, or
+    # anything else the repo carries in its .env). Apps that don't use local
+    # DB provisioning usually leave this empty or repo-specific.
+    env_path = os.path.join(APPS_DIR, app_name, ".env")
+    if os.path.exists(env_path):
+        cmd.insert(-1, "--env-file")
+        cmd.insert(-1, env_path)
+
     # Pass per-app persistent secrets from /var/www/aihub-admin/secrets/<app>.env
-    # if present. Lives OUTSIDE the clone target so rm -rf during redeploy
-    # can't touch it, and it loads after platform.env so an app-specific key
-    # (e.g. ANTHROPIC_API_KEY) overrides the platform-wide one. Apps that
-    # don't have a secrets file are unaffected.
+    # LAST, so it overrides both platform.env and apps/<app>/.env. Lives
+    # outside the clone target so rm -rf during redeploy can't touch it.
+    # This is the modern per-app secrets pattern: apps pointing at external
+    # databases (DO managed Postgres, Nest MySQL) put DB_HOST/DB_USER here,
+    # and this file wins over any stale auto-provisioned values left in
+    # apps/<app>/.env from a previous local-DB-provisioning run.
     secrets_dir = os.environ.get("SECRETS_DIR", "/var/www/aihub-admin/secrets")
     secrets_path = os.path.join(secrets_dir, f"{app_name}.env")
     if os.path.exists(secrets_path):
         cmd.insert(-1, "--env-file")
         cmd.insert(-1, secrets_path)
-
-    # Pass app-specific .env (DB credentials from provisioning). Loaded last
-    # so DB_* values always win, regardless of what platform/secrets files set.
-    env_path = os.path.join(APPS_DIR, app_name, ".env")
-    if os.path.exists(env_path):
-        cmd.insert(-1, "--env-file")
-        cmd.insert(-1, env_path)
 
     # Persist generated files across rebuilds via volumes.txt in the app dir.
     # Each line: relative_host_path:/container/path
