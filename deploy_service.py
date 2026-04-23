@@ -195,6 +195,17 @@ def self_deploy():
     # compose-generated bind mount paths (e.g. /var/www/aihub-admin/permissions.db)
     # resolve correctly on the host daemon.
     # Capture stdout/stderr to a log file so failures aren't silent.
+    # Pre-cleanup: compose's own stop/recreate is not atomic. A prior
+    # deploy that died mid-recreate can leave a container named
+    # "<hash>_aihub-admin-panel" holding the real name slot, which makes
+    # the next `compose up` fail with "name already in use" and leave
+    # admin-panel in Created (stopped) state — outage. Seen on incubator
+    # 2026-04-23. Remove any container whose name matches the admin-panel
+    # service before compose tries to recreate.
+    #
+    # docker ps --filter "name=X" does a substring match, so it catches
+    # both the canonical name and any prefixed orphan form. `|| true` is
+    # fine here — nothing to clean up is a valid state.
     cmd = (
         f"cd {repo_path} && "
         "git fetch origin && "
@@ -207,6 +218,8 @@ def self_deploy():
         # Ensure host-side state files exist as files before compose bind-mounts them.
         # `touch` is a no-op if the file already exists, so existing data is safe.
         "touch permissions.db readonly_db_users.json ip_labels.json ssh_aliases.json && "
+        # Ghost-container cleanup (see comment above).
+        "docker ps -aq --filter 'name=aihub-admin-panel' | xargs -r docker rm -f >/dev/null 2>&1 || true && "
         "docker compose -p aihub-admin up --build -d --no-deps admin-panel"
     )
     # Log to /tmp inside the deploy-service container — survives the
