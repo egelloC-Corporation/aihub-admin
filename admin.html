@@ -1383,9 +1383,30 @@ function editRoles(cell, email) {
   const chips = document.createElement("div");
   chips.className = "role-picker-chips";
 
-  // Union canonical + any custom roles already on this user, so the
-  // editor always shows what's currently assigned.
-  const chipRoles = Array.from(new Set([...CANONICAL_ROLES, ...currentSet]));
+  // Chip list = canonical roles + every custom role currently assigned to
+  // any user in the table. Users can add ad-hoc roles (e.g. "Editor") and
+  // admins editing a different user need to see those options — otherwise
+  // the only way to put someone on an existing custom team is to re-type
+  // the role via "+ new role", which is error-prone.
+  const allKnownRoles = new Set(CANONICAL_ROLES);
+  (DATA.users || []).forEach(u => {
+    (u.roles || "").split(",").map(r => r.trim()).filter(Boolean)
+      .map(normalizeRoleDisplay).filter(Boolean)
+      .forEach(r => allKnownRoles.add(r));
+  });
+  // Always include everything the current user already has (handles the
+  // edge case of a role that was removed from the table after this user
+  // was assigned to it).
+  currentSet.forEach(r => allKnownRoles.add(r));
+  // Sort: canonical first in defined order, then custom roles alphabetically.
+  const chipRoles = Array.from(allKnownRoles).sort((a, b) => {
+    const ai = CANONICAL_ROLES.indexOf(a);
+    const bi = CANONICAL_ROLES.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
   function addChip(role, active) {
     const chip = document.createElement("button");
     chip.type = "button";
