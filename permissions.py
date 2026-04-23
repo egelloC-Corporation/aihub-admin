@@ -6,16 +6,41 @@ Apps are registered here and permissions are managed via /admin.
 """
 
 import os
+import json
 import sqlite3
 from datetime import datetime
 
 # ── App Registry ──
-# Add new apps here as they're built
-APPS = [
+# The default is incubator's historical set. Playground (or any new
+# instance) can override via INSTANCE_APPS_JSON env var — a JSON array
+# of {slug, name, description} dicts. init_db() reconciles app_registry
+# with this list on every startup so stale rows don't linger when the
+# override is changed.
+_DEFAULT_APPS = [
     {"slug": "hub", "name": "Tech Knowledge Base", "description": "Documentation, architecture, team resources, and internal tools"},
     {"slug": "briefer", "name": "Coaching Briefer", "description": "Pre-call briefings with AI summaries"},
     {"slug": "admin", "name": "Admin Panel", "description": "Manage user permissions"},
 ]
+
+
+def _load_apps():
+    raw = os.environ.get("INSTANCE_APPS_JSON", "").strip()
+    if not raw:
+        return _DEFAULT_APPS
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list) and all(
+            isinstance(x, dict) and "slug" in x and "name" in x for x in parsed
+        ):
+            # Fill in missing description field to keep downstream code simple.
+            return [{"slug": x["slug"], "name": x["name"],
+                     "description": x.get("description", "")} for x in parsed]
+    except (ValueError, TypeError):
+        pass
+    return _DEFAULT_APPS
+
+
+APPS = _load_apps()
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "permissions.db")
 
@@ -106,11 +131,20 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
-    # Upsert app registry
+    # Reconcile app registry with APPS: upsert each, then drop stale rows.
+    # Without the DELETE, switching INSTANCE_APPS_JSON (e.g. shrinking to
+    # just admin on playground) would leave hub/briefer behind in the UI.
+    current_slugs = [app["slug"] for app in APPS]
     for app in APPS:
         conn.execute(
             "INSERT OR REPLACE INTO app_registry (slug, name, description) VALUES (?, ?, ?)",
             (app["slug"], app["name"], app["description"]),
+        )
+    if current_slugs:
+        placeholders = ",".join("?" * len(current_slugs))
+        conn.execute(
+            f"DELETE FROM app_registry WHERE slug NOT IN ({placeholders})",
+            current_slugs,
         )
 
     conn.commit()
@@ -193,7 +227,14 @@ def get_all_apps():
 
 
 def get_egelloc_staff(mysql_conn):
-    """Pull staff users (admin, super_admin, coach, CX, Strategist) from MySQL."""
+    """Pull staff users (admin, super_admin, coach, CX, Strategist) from MySQL.
+
+    Skipped when FEATURES_STAFF_SYNC=false (e.g. on playground — it's a
+    student-facing box that shouldn't auto-list internal egelloC staff).
+    """
+    if os.environ.get("FEATURES_STAFF_SYNC", "true").strip().lower() \
+            not in ("1", "true", "yes", "on"):
+        return []
     cursor = mysql_conn.cursor(dictionary=True)
     cursor.execute("""
         SELECT u.email, u.first_name, u.last_name, u.status, u.avatar,
