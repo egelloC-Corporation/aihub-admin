@@ -8,7 +8,10 @@ Wraps scripts/deploy.py, scripts/nginx_config.py, and scripts/db_provision.py.
 """
 
 import os
+import re
 import sys
+import json
+import shlex
 import logging
 import subprocess
 
@@ -277,6 +280,168 @@ def kb_deploy_log():
         return jsonify({"log": "".join(lines[-tail:]), "path": log_path}), 200
     except FileNotFoundError:
         return jsonify({"log": "", "note": "No deploy has run yet"}), 200
+
+
+# ── Host user management (VPS Users feature) ──
+# All four endpoints shell out to the host via the same nsenter pattern
+# /kb-deploy uses (see the comment on that route). Admin panel gates the
+# mutations behind @admin_required and does input validation; we just
+# execute here.
+
+USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,30}$")
+PROTECTED_USERNAMES = {
+    "root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail",
+    "news", "proxy", "www-data", "backup", "list", "irc", "_apt", "nobody",
+    "systemd-network", "systemd-resolve", "messagebus", "sshd", "ubuntu",
+}
+VALID_KEY_TYPES = ("ssh-ed25519", "ssh-rsa", "ecdsa-sha2-nistp256",
+                   "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521")
+
+
+def run_on_host(inner_cmd, timeout=30):
+    """Execute inner_cmd on the host via the alpine+nsenter pattern.
+
+    Returns (returncode, stdout, stderr). Callers MUST pre-quote any
+    interpolated values with shlex.quote — this function does no escaping.
+    """
+    outer = (
+        "apk add --no-cache util-linux -q && "
+        f"nsenter -t 1 -m -u -i -n -p -- sh -c {shlex.quote(inner_cmd)}"
+    )
+    cmd = ["docker", "run", "--rm", "--pid=host", "--privileged",
+           "alpine", "sh", "-c", outer]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def _validate_username(name):
+    if not name or not USERNAME_RE.match(name):
+        return "invalid username (must match ^[a-z_][a-z0-9_-]{0,30}$)"
+    if name in PROTECTED_USERNAMES:
+        return f"'{name}' is a protected system username"
+    return None
+
+
+def _validate_pubkey(key):
+    key = (key or "").strip()
+    if not key:
+        return "public key is required"
+    parts = key.split()
+    if len(parts) < 2 or parts[0] not in VALID_KEY_TYPES:
+        return "unsupported or malformed SSH public key"
+    # base64 sanity — don't try to decode, just length and charset
+    if not re.match(r"^[A-Za-z0-9+/=]+$", parts[1]) or len(parts[1]) < 40:
+        return "malformed SSH public key payload"
+    return None
+
+
+@app.route("/host-users", methods=["GET"])
+def host_users_list():
+    """List login-capable host users (uid ≥ 1000) with sudo flag + key count."""
+    inner = (
+        "getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1 \"|\" $3 \"|\" $6}' | "
+        "while IFS='|' read name uid home; do "
+        "  sudo_flag=no; "
+        "  if id -nG \"$name\" 2>/dev/null | grep -qw sudo; then sudo_flag=yes; fi; "
+        "  keys=0; "
+        "  if [ -f \"$home/.ssh/authorized_keys\" ]; then "
+        "    keys=$(grep -cvE '^[[:space:]]*(#|$)' \"$home/.ssh/authorized_keys\" 2>/dev/null || echo 0); "
+        "  fi; "
+        "  echo \"$name|$uid|$sudo_flag|$keys\"; "
+        "done"
+    )
+    try:
+        code, out, err = run_on_host(inner, timeout=20)
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "timed out enumerating host users"}), 504
+    if code != 0:
+        return jsonify({"error": "host enumeration failed", "stderr": err[-400:]}), 500
+
+    users = []
+    for line in out.strip().splitlines():
+        parts = line.split("|")
+        if len(parts) != 4:
+            continue
+        name, uid, sudo_flag, keys = parts
+        users.append({
+            "name": name,
+            "uid": int(uid) if uid.isdigit() else uid,
+            "sudo": sudo_flag == "yes",
+            "keys": int(keys) if keys.isdigit() else 0,
+        })
+    return jsonify({"users": sorted(users, key=lambda u: u["name"])})
+
+
+@app.route("/host-users", methods=["POST"])
+def host_users_create():
+    """Create a login user, install one authorized_key, optionally add to sudo."""
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    pubkey = (body.get("pubkey") or "").strip()
+    grant_sudo = bool(body.get("sudo", False))
+
+    err = _validate_username(name) or _validate_pubkey(pubkey)
+    if err:
+        return jsonify({"error": err}), 400
+
+    q_name = shlex.quote(name)
+    q_key = shlex.quote(pubkey)
+    inner = (
+        f"set -e; "
+        f"if id {q_name} >/dev/null 2>&1; then echo 'user exists' >&2; exit 2; fi; "
+        f"useradd -m -s /bin/bash {q_name}; "
+        f"mkdir -p /home/{q_name}/.ssh && chmod 700 /home/{q_name}/.ssh; "
+        f"printf '%s\\n' {q_key} > /home/{q_name}/.ssh/authorized_keys; "
+        f"chmod 600 /home/{q_name}/.ssh/authorized_keys; "
+        f"chown -R {q_name}:{q_name} /home/{q_name}/.ssh; "
+    )
+    if grant_sudo:
+        inner += f"usermod -aG sudo {q_name}; "
+    inner += "echo ok"
+
+    try:
+        code, out, err_out = run_on_host(inner, timeout=30)
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "timed out creating user"}), 504
+
+    if code == 2:
+        return jsonify({"error": f"user '{name}' already exists"}), 409
+    if code != 0:
+        return jsonify({"error": "user creation failed",
+                        "stderr": err_out[-400:]}), 500
+    return jsonify({"status": "created", "name": name, "sudo": grant_sudo}), 201
+
+
+@app.route("/host-users/<name>", methods=["DELETE"])
+def host_users_delete(name):
+    """Remove a host user and their home directory."""
+    err = _validate_username(name)
+    if err:
+        return jsonify({"error": err}), 400
+
+    q_name = shlex.quote(name)
+    inner = (
+        f"if ! id {q_name} >/dev/null 2>&1; then echo 'no such user' >&2; exit 2; fi; "
+        # Belt-and-suspenders: refuse to touch uid < 1000 even if the name
+        # passed the PROTECTED list. The validator should have caught it.
+        f"uid=$(id -u {q_name}); "
+        f"if [ \"$uid\" -lt 1000 ]; then echo 'refuse: system uid' >&2; exit 3; fi; "
+        f"userdel -r {q_name} 2>&1 || true; "
+        f"echo ok"
+    )
+    try:
+        code, out, err_out = run_on_host(inner, timeout=20)
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "timed out deleting user"}), 504
+
+    if code == 2:
+        return jsonify({"error": f"no such user '{name}'"}), 404
+    if code == 3:
+        return jsonify({"error": "refused: system uid"}), 403
+    if code != 0:
+        return jsonify({"error": "user deletion failed",
+                        "stderr": err_out[-400:]}), 500
+    return jsonify({"status": "deleted", "name": name})
 
 
 if __name__ == "__main__":
