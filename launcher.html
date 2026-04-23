@@ -4,6 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>egelloC Incubator</title>
+  <script src="/config/brand.js"></script>
+  <script>
+    // Apply brand early so there's no flash of default text.
+    (function() {
+      var b = window.AIHUB_BRAND || {};
+      if (b.name) document.title = "egelloC " + b.name;
+    })();
+  </script>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon/32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon/16.png">
@@ -218,8 +226,8 @@
 
 <div class="content">
   <div class="welcome">
-    <img src="/assets/incubator-logo.png" alt="egelloC Incubator" class="hero-logo">
-    <p class="tagline">Where tools hatch.</p>
+    <img src="/assets/incubator-logo.png" alt="egelloC Incubator" class="hero-logo" id="heroLogo">
+    <p class="tagline" id="heroTagline">Where tools hatch.</p>
     <h2 id="greeting">Welcome</h2>
     <div class="view-toggle" id="viewToggle" style="margin-top:12px;">
       <button onclick="setView('grid')" title="Grid view"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="7" height="7" rx="1.5"/><rect x="9" y="0" width="7" height="7" rx="1.5"/><rect x="0" y="9" width="7" height="7" rx="1.5"/><rect x="9" y="9" width="7" height="7" rx="1.5"/></svg></button>
@@ -232,7 +240,7 @@
   </div>
 </div>
 
-<div class="footer">egelloC Incubator</div>
+<div class="footer" id="brandFooter">egelloC Incubator</div>
 
 <script>
 const APP_DEFS = [
@@ -437,6 +445,17 @@ function setView(mode) {
 })();
 
 init();
+
+// Apply brand to hero logo, tagline, and footer.
+(function() {
+  var b = window.AIHUB_BRAND || {};
+  var logo = document.getElementById("heroLogo");
+  if (logo && b.logo_url) { logo.src = b.logo_url; logo.alt = "egelloC " + (b.name || ""); }
+  var tag = document.getElementById("heroTagline");
+  if (tag && b.tagline) tag.textContent = b.tagline;
+  var foot = document.getElementById("brandFooter");
+  if (foot && b.name) foot.textContent = "egelloC " + b.name;
+})();
 </script>
 <script src="/hub-navbar.js" defer></script>
 </body>

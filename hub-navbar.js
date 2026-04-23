@@ -38,6 +38,10 @@
     { slug: "admin", name: "Admin Panel", icon: "\u2699\ufe0f", url: "/admin" },
   ];
 
+  // Instance name for banner + pill wordmarks. Falls back to "Incubator"
+  // for deployed apps that don't load /config/brand.js. Set via INSTANCE_NAME.
+  var BRAND_NAME = (window.AIHUB_BRAND && window.AIHUB_BRAND.name) || "Incubator";
+
   // Aliases: URL-path segment → registry slug. Used when an app's public
   // route differs from its submission slug (e.g., knowledge base serves at
   // /knowledge/ but is registered under slug "hub").
@@ -215,9 +219,9 @@
     root.setAttribute("role", "banner");
     root.innerHTML =
       '<div class="hub-banner-left">' +
-        '<a class="hub-banner-platform" href="/launcher" title="Incubator home">' +
+        '<a class="hub-banner-platform" href="/launcher" title="' + esc(BRAND_NAME) + ' home">' +
           '<img src="' + window.location.origin + '/favicon.svg" alt="">' +
-          '<span class="hub-banner-platform-word">Incubator</span>' +
+          '<span class="hub-banner-platform-word">' + esc(BRAND_NAME) + '</span>' +
         '</a>' +
         '<span class="hub-banner-divider" aria-hidden="true"></span>' +
         '<a class="hub-banner-app" id="hubBannerApp" href="' + esc(appHomeUrl) + '" title="' + esc(initialAppName) + ' home">' +
@@ -229,9 +233,9 @@
     root = document.createElement("div");
     root.className = "hub-bar";
     root.innerHTML =
-      '<a class="hub-pill" href="/launcher" title="Incubator home">' +
+      '<a class="hub-pill" href="/launcher" title="' + esc(BRAND_NAME) + ' home">' +
         '<img src="' + window.location.origin + '/favicon.svg" alt="">' +
-        '<span class="hub-pill-word">Incubator</span>' +
+        '<span class="hub-pill-word">' + esc(BRAND_NAME) + '</span>' +
         '<span class="hub-pill-sep" aria-hidden="true">·</span>' +
         '<span class="hub-pill-app" id="hubPillApp">' + esc(initialAppName) + '</span>' +
       '</a>' +

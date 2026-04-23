@@ -4,6 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Permissions — egelloC Incubator</title>
+  <script src="/config/brand.js"></script>
+  <script>
+    (function() {
+      var b = window.AIHUB_BRAND || {};
+      if (b.name) document.title = "Permissions — egelloC " + b.name;
+    })();
+  </script>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon/32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon/16.png">
@@ -2066,7 +2073,7 @@ async function loadNetworkRules(dbSlug) {
     rules.map(function(r) {
       var info = getIpLabel(dbSlug, r.value);
       var ipLabel = (info.label || "").toLowerCase();
-      var isProtected = r.value === "165.232.155.132" || ipLabel === "developer";
+      var isProtected = r.protected || ipLabel === "developer";
       return '<tr>' +
         '<td><code style="font-size:12px;">' + escHtml(r.value) + '</code></td>' +
         '<td style="font-size:12px;color:var(--text-muted);"><span style="cursor:pointer;border-bottom:1px dashed var(--text-dim);padding-bottom:1px;" onclick="editIpLabel(\'' + dbSlug + '\',\'' + escHtml(r.value) + '\', this)" title="Click to edit label">' + escHtml(info.label || 'click to label') + '</span></td>' +
