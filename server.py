@@ -238,7 +238,7 @@ def app_permission_required(app_slug):
                     'border-radius:8px;margin-top:16px;}a:hover{background:rgba(79,143,247,0.12);}</style></head>'
                     '<body><h2>Access Denied</h2><p style="color:#8b8fa3;margin-top:8px;">'
                     f'You don\'t have permission to access this application.</p>'
-                    '<a href="/launcher">Back to Incubator</a></body></html>',
+                    f'<a href="/launcher">Back to {_brand_config()["name"]}</a></body></html>',
                     status=403, content_type="text/html",
                 )
             return f(*args, **kwargs)
@@ -325,6 +325,7 @@ def _brand_config():
         "name":     os.environ.get("INSTANCE_NAME", "Incubator"),
         "tagline":  os.environ.get("INSTANCE_TAGLINE", "Where tools hatch."),
         "logo_url": os.environ.get("INSTANCE_LOGO_URL", "/assets/incubator-logo.png"),
+        "domain":   os.environ.get("APP_DOMAIN", "incubator.egelloc.com"),
     }
 
 
@@ -499,7 +500,7 @@ def admin_required(f):
                 'border-radius:8px;margin-top:16px;}a:hover{background:rgba(79,143,247,0.12);}</style></head>'
                 '<body><h2>Access Denied</h2><p style="color:#8b8fa3;margin-top:8px;">'
                 'You don\'t have permission to access the Admin Panel.</p>'
-                '<a href="/launcher">Back to Incubator</a></body></html>',
+                f'<a href="/launcher">Back to {_brand_config()["name"]}</a></body></html>',
                 status=403, content_type="text/html",
             )
         return f(*args, **kwargs)
