@@ -769,6 +769,7 @@
     <button class="tab" data-tab="infrastructure" data-feature="infra_access" onclick="switchTab('infrastructure')">Infrastructure Access</button>
     <button class="tab" data-tab="vps-users" onclick="switchTab('vps-users')">VPS Users</button>
     <button class="tab" data-tab="registry" onclick="switchTab('registry')">App Registry</button>
+    <button class="tab" data-tab="secrets" onclick="switchTab('secrets')">Secrets</button>
   </div>
 
   <div class="tab-panel active" id="tab-permissions">
@@ -1207,6 +1208,21 @@ SECRET_TOKEN</span></span>
 
     </div>
   </div><!-- end tab-registry -->
+
+  <div class="tab-panel" id="tab-secrets">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <h3 style="margin:0;font-size:15px;">App Secrets</h3>
+        <button onclick="loadSecrets()" style="font-size:12px;padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text-muted);cursor:pointer;">Refresh</button>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">
+        Per-app <code>.env</code> values mounted into each container at deploy. Values are masked by default — click <strong>Show values</strong> to reveal (audit-logged). Changes take effect on next redeploy.
+      </div>
+      <div id="secretsBody">
+        <div style="color:var(--text-muted);font-size:13px;padding:20px 0;">Loading…</div>
+      </div>
+    </div>
+  </div><!-- end tab-secrets -->
 
 </div><!-- end container -->
 
@@ -1887,6 +1903,7 @@ var TAB_PATHS = {
   infrastructure: "/admin/infrastructure",
   "vps-users": "/admin/vps-users",
   registry: "/admin/apps",
+  secrets: "/admin/secrets",
 };
 var PATH_TO_TAB = {
   "/admin": "permissions",
@@ -1894,6 +1911,7 @@ var PATH_TO_TAB = {
   "/admin/infrastructure": "infrastructure",
   "/admin/vps-users": "vps-users",
   "/admin/apps": "registry",
+  "/admin/secrets": "secrets",
 };
 
 function switchTab(tab, pushState) {
@@ -1917,6 +1935,9 @@ function switchTab(tab, pushState) {
   }
   if (tab === "registry") {
     loadSubmissions();
+  }
+  if (tab === "secrets") {
+    loadSecrets();
   }
 }
 
@@ -2079,6 +2100,183 @@ function deleteVpsUser(name) {
       } else {
         alert(res.d.error || "Failed");
       }
+    });
+}
+
+// ── Secrets tab ──
+var _secretsState = {};   // slug → { expanded: bool, revealed: bool, keys: [], loading: bool }
+
+function loadSecrets() {
+  var box = document.getElementById("secretsBody");
+  box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:12px 0;">Loading…</div>';
+  fetch("/admin/api/secrets")
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+    .then(function(res) {
+      if (!res.ok) {
+        box.innerHTML = '<div style="color:#e06b6b;font-size:13px;">Error: ' + escHtml(res.d.error || "failed") + '</div>';
+        return;
+      }
+      var apps = res.d.apps || [];
+      if (apps.length === 0) {
+        box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:20px 0;">No approved apps yet.</div>';
+        return;
+      }
+      box.innerHTML = apps.map(function(a) {
+        var s = _secretsState[a.slug] || {};
+        var open = s.expanded;
+        return '<div style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden;">' +
+          '<div onclick="toggleSecretsApp(\'' + escHtml(a.slug) + '\')" style="padding:10px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:var(--bg);">' +
+            '<div>' +
+              '<span style="font-size:10px;color:var(--text-muted);margin-right:6px;">' + (open ? '▾' : '▸') + '</span>' +
+              '<strong style="font-size:14px;">' + escHtml(a.name) + '</strong>' +
+              ' <code style="font-size:11px;color:var(--text-muted);margin-left:6px;">' + escHtml(a.slug) + '</code>' +
+            '</div>' +
+            '<span style="font-size:12px;color:var(--text-muted);">' + a.key_count + ' secret' + (a.key_count === 1 ? '' : 's') + '</span>' +
+          '</div>' +
+          '<div id="secrets-panel-' + escHtml(a.slug) + '" style="display:' + (open ? 'block' : 'none') + ';padding:12px 14px;">' +
+            (open ? _renderSecretsPanel(a.slug) : '') +
+          '</div>' +
+        '</div>';
+      }).join("");
+    })
+    .catch(function(e) {
+      box.innerHTML = '<div style="color:#e06b6b;font-size:13px;">Network error: ' + escHtml(String(e)) + '</div>';
+    });
+}
+
+function toggleSecretsApp(slug) {
+  var s = _secretsState[slug] || { expanded: false, revealed: false };
+  s.expanded = !s.expanded;
+  _secretsState[slug] = s;
+  var panel = document.getElementById("secrets-panel-" + slug);
+  if (!panel) return;
+  panel.style.display = s.expanded ? "block" : "none";
+  // Update arrow
+  var header = panel.previousElementSibling;
+  if (header) {
+    var arrow = header.querySelector("span");
+    if (arrow) arrow.textContent = s.expanded ? "▾" : "▸";
+  }
+  if (s.expanded) {
+    _fetchSecretsForApp(slug, false);
+  }
+}
+
+function _fetchSecretsForApp(slug, reveal) {
+  var panel = document.getElementById("secrets-panel-" + slug);
+  if (!panel) return;
+  panel.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">Loading…</div>';
+  fetch("/admin/api/secrets/" + encodeURIComponent(slug) + (reveal ? "?reveal=1" : ""))
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+    .then(function(res) {
+      if (!res.ok) {
+        panel.innerHTML = '<div style="color:#e06b6b;font-size:12px;">Error: ' + escHtml(res.d.error || "failed") + '</div>';
+        return;
+      }
+      var s = _secretsState[slug] || {};
+      s.keys = res.d.keys || [];
+      s.revealed = !!res.d.revealed;
+      _secretsState[slug] = s;
+      panel.innerHTML = _renderSecretsPanel(slug);
+    })
+    .catch(function(e) {
+      panel.innerHTML = '<div style="color:#e06b6b;font-size:12px;">Network error: ' + escHtml(String(e)) + '</div>';
+    });
+}
+
+function _renderSecretsPanel(slug) {
+  var s = _secretsState[slug] || {};
+  var keys = s.keys || [];
+  var revealed = !!s.revealed;
+  var rows = keys.length === 0
+    ? '<div style="color:var(--text-muted);font-size:12px;padding:6px 0;">No secrets yet. Add one below.</div>'
+    : keys.map(function(k) {
+        return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border);">' +
+          '<code style="flex:0 0 240px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(k.key) + '</code>' +
+          '<code style="flex:1;font-size:12px;color:var(--text-muted);word-break:break-all;min-width:0;' + (revealed ? 'cursor:pointer;' : '') + '" ' +
+            (revealed ? 'onclick="copyToClipboard(this, ' + JSON.stringify(k.value).replace(/"/g, '&quot;') + ')" title="Click to copy"' : '') +
+          '>' + escHtml(k.value || "(empty)") + '</code>' +
+          '<button onclick="editSecret(\'' + escHtml(slug) + '\', \'' + escHtml(k.key) + '\')" style="font-size:11px;padding:3px 8px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;">Edit</button>' +
+          '<button onclick="deleteSecret(\'' + escHtml(slug) + '\', \'' + escHtml(k.key) + '\')" class="key-remove">Delete</button>' +
+        '</div>';
+      }).join("");
+  var toolbar =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;">' +
+      '<button onclick="' + (revealed ? 'hideSecretValues' : 'revealSecretValues') + '(\'' + escHtml(slug) + '\')" ' +
+        'style="font-size:12px;padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;">' +
+        (revealed ? 'Hide values' : 'Show values') +
+      '</button>' +
+      '<button onclick="addSecret(\'' + escHtml(slug) + '\')" style="font-size:12px;padding:4px 10px;background:var(--accent,#4f8ff7);color:white;border:0;border-radius:5px;cursor:pointer;">+ Add secret</button>' +
+    '</div>';
+  return toolbar + rows;
+}
+
+function revealSecretValues(slug) {
+  if (!confirm("Reveal plaintext secrets for " + slug + "? This will be audit-logged.")) return;
+  _fetchSecretsForApp(slug, true);
+}
+
+function hideSecretValues(slug) {
+  _fetchSecretsForApp(slug, false);
+}
+
+function addSecret(slug) {
+  var key = prompt("Secret key name (e.g. OPENAI_API_KEY):");
+  if (!key) return;
+  key = key.trim().toUpperCase();
+  if (!/^[A-Z_][A-Z0-9_]{0,63}$/.test(key)) {
+    alert("Invalid key. Use uppercase letters, digits, underscores; must start with a letter or underscore.");
+    return;
+  }
+  var value = prompt("Value for " + key + ":");
+  if (value === null) return;
+  _postSecret(slug, key, value);
+}
+
+function editSecret(slug, key) {
+  var s = _secretsState[slug] || {};
+  var current = "";
+  if (s.revealed) {
+    var match = (s.keys || []).find(function(k) { return k.key === key; });
+    current = match ? match.value : "";
+  }
+  var value = prompt("New value for " + key + ":\n(Reveal values first to see the current one.)", current);
+  if (value === null) return;
+  _postSecret(slug, key, value);
+}
+
+function _postSecret(slug, key, value) {
+  fetch("/admin/api/secrets/" + encodeURIComponent(slug), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: key, value: value }),
+  })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+    .then(function(res) {
+      if (!res.ok) {
+        alert(res.d.error || "Failed");
+        return;
+      }
+      var s = _secretsState[slug] || {};
+      _fetchSecretsForApp(slug, s.revealed);
+      // Refresh the outer list to update the count, but preserve expanded state
+      var saved = JSON.parse(JSON.stringify(_secretsState));
+      loadSecrets();
+      setTimeout(function() { _secretsState = saved; }, 50);
+    });
+}
+
+function deleteSecret(slug, key) {
+  if (!confirm("Delete " + key + " from " + slug + "?")) return;
+  fetch("/admin/api/secrets/" + encodeURIComponent(slug) + "/" + encodeURIComponent(key), { method: "DELETE" })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+    .then(function(res) {
+      if (!res.ok) {
+        alert(res.d.error || "Failed");
+        return;
+      }
+      var s = _secretsState[slug] || {};
+      _fetchSecretsForApp(slug, s.revealed);
     });
 }
 

@@ -19,6 +19,10 @@ services:
       - ./readonly_db_users.json:/app/readonly_db_users.json
       - ./ip_labels.json:/app/ip_labels.json
       - ./ssh_aliases.json:/app/ssh_aliases.json
+      # Per-app secrets (/var/www/aihub-admin/secrets/<slug>.env) — mounted at
+      # the same path as on the host so SECRETS_DIR default works unchanged.
+      # Same files the deploy flow injects via docker run --env-file.
+      - /var/www/aihub-admin/secrets:/var/www/aihub-admin/secrets
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',5051),2); s.close()"]
       interval: 30s
