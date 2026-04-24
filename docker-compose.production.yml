@@ -45,6 +45,12 @@ services:
     restart: unless-stopped
     expose:
       - "5001"
+    # Pull platform-wide secrets (ACQ_DB_*, INCUBATOR_LOG_DB_*, etc.) from
+    # the same .env the admin-panel uses. Needed for the deploy_runs audit
+    # writer (reads ACQ_DB_HOST etc.). The explicit `environment:` block
+    # below still takes precedence for anything it sets (POSTGRES_HOST=
+    # postgres, for example).
+    env_file: .env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./apps:/app/apps
