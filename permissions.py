@@ -134,17 +134,43 @@ def init_db():
     # Reconcile app registry with APPS: upsert each, then drop stale rows.
     # Without the DELETE, switching INSTANCE_APPS_JSON (e.g. shrinking to
     # just admin on playground) would leave hub/briefer behind in the UI.
-    current_slugs = [app["slug"] for app in APPS]
+    #
+    # Also preserve user-submitted apps (app_submissions rows with status
+    # live/approved) — they're inserted into app_registry at approval time
+    # (see approve_submission) and were otherwise getting wiped on every
+    # boot, causing the Permissions tab to lose apps until the next submit.
+    # Backfill from app_submissions so a post-boot Permissions view always
+    # matches the App Registry view.
+    try:
+        submission_apps = {
+            r["slug"]: (r["name"], r["description"] or "")
+            for r in conn.execute(
+                "SELECT slug, name, description FROM app_submissions "
+                "WHERE status IN ('live', 'approved')"
+            ).fetchall()
+        }
+    except sqlite3.OperationalError:
+        submission_apps = {}  # app_submissions not yet migrated; safe default
+
+    current_slugs = set(app["slug"] for app in APPS) | set(submission_apps.keys())
     for app in APPS:
         conn.execute(
             "INSERT OR REPLACE INTO app_registry (slug, name, description) VALUES (?, ?, ?)",
             (app["slug"], app["name"], app["description"]),
         )
+    for slug, (name, desc) in submission_apps.items():
+        # Only upsert if APPS didn't already provide this slug (APPS takes
+        # precedence — lets the env override a submission's name/description).
+        if slug not in (a["slug"] for a in APPS):
+            conn.execute(
+                "INSERT OR REPLACE INTO app_registry (slug, name, description) VALUES (?, ?, ?)",
+                (slug, name, desc),
+            )
     if current_slugs:
         placeholders = ",".join("?" * len(current_slugs))
         conn.execute(
             f"DELETE FROM app_registry WHERE slug NOT IN ({placeholders})",
-            current_slugs,
+            list(current_slugs),
         )
 
     conn.commit()
