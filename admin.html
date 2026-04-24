@@ -2225,12 +2225,14 @@ function _renderSecretsPanel(slug) {
   var rows = keys.length === 0
     ? '<div style="color:var(--text-muted);font-size:12px;padding:6px 0;">No secrets yet. Add one below.</div>'
     : keys.map(function(k) {
-        return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border);">' +
+        var btnStyle = 'font-size:11px;padding:3px 8px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;';
+        return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border);">' +
           '<code style="flex:0 0 240px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(k.key) + '</code>' +
           '<code style="flex:1;font-size:12px;color:var(--text-muted);word-break:break-all;min-width:0;' + (revealed ? 'cursor:pointer;' : '') + '" ' +
             (revealed ? 'onclick="copyToClipboard(this, ' + JSON.stringify(k.value).replace(/"/g, '&quot;') + ')" title="Click to copy"' : '') +
           '>' + escHtml(k.value || "(empty)") + '</code>' +
-          '<button onclick="editSecret(\'' + escHtml(slug) + '\', \'' + escHtml(k.key) + '\')" style="font-size:11px;padding:3px 8px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;">Edit</button>' +
+          '<button onclick="copySecret(this, \'' + escHtml(slug) + '\', \'' + escHtml(k.key) + '\')" title="Copy value to clipboard (audit-logged)" style="' + btnStyle + '">Copy</button>' +
+          '<button onclick="editSecret(\'' + escHtml(slug) + '\', \'' + escHtml(k.key) + '\')" style="' + btnStyle + '">Edit</button>' +
           '<button onclick="deleteSecret(\'' + escHtml(slug) + '\', \'' + escHtml(k.key) + '\')" class="key-remove">Delete</button>' +
         '</div>';
       }).join("");
@@ -2300,6 +2302,41 @@ function _postSecret(slug, key, value) {
       var saved = JSON.parse(JSON.stringify(_secretsState));
       loadSecrets();
       setTimeout(function() { _secretsState = saved; }, 50);
+    });
+}
+
+function copySecret(btn, slug, key) {
+  var orig = btn.textContent;
+  btn.textContent = "…";
+  btn.disabled = true;
+  fetch("/admin/api/secrets/" + encodeURIComponent(slug) + "/" + encodeURIComponent(key) + "/value")
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+    .then(function(res) {
+      btn.disabled = false;
+      if (!res.ok) {
+        btn.textContent = "Error";
+        alert(res.d.error || "Failed to fetch value");
+        setTimeout(function() { btn.textContent = orig; }, 1200);
+        return;
+      }
+      if (!navigator.clipboard) {
+        btn.textContent = "No clipboard";
+        setTimeout(function() { btn.textContent = orig; }, 1500);
+        return;
+      }
+      navigator.clipboard.writeText(res.d.value || "").then(function() {
+        btn.textContent = "Copied ✓";
+        btn.style.color = "#5ac27a";
+        setTimeout(function() {
+          btn.textContent = orig;
+          btn.style.color = "";
+        }, 1200);
+      });
+    })
+    .catch(function(e) {
+      btn.disabled = false;
+      btn.textContent = "Error";
+      setTimeout(function() { btn.textContent = orig; }, 1200);
     });
 }
 
