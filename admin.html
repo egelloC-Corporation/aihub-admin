@@ -1222,6 +1222,10 @@ SECRET_TOKEN</span></span>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">
         Per-app <code>.env</code> values mounted into each container at deploy. Values are masked by default — click <strong>Show values</strong> to reveal (audit-logged). Changes take effect on next redeploy.
       </div>
+      <input class="search-input" type="search" id="secretsSearch"
+             placeholder="Search apps or slugs..."
+             oninput="renderSecretsList()"
+             style="width:100%;margin-bottom:12px;font-size:13px;padding:7px 12px;box-sizing:border-box;">
       <div id="secretsBody">
         <div style="color:var(--text-muted);font-size:13px;padding:20px 0;">Loading…</div>
       </div>
@@ -2131,6 +2135,7 @@ function deleteVpsUser(name) {
 
 // ── Secrets tab ──
 var _secretsState = {};   // slug → { expanded: bool, revealed: bool, keys: [], loading: bool }
+var _secretsApps = null;  // last fetched list, or null before first load
 
 function loadSecrets() {
   var box = document.getElementById("secretsBody");
@@ -2139,43 +2144,63 @@ function loadSecrets() {
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
     .then(function(res) {
       if (!res.ok) {
+        _secretsApps = null;
         box.innerHTML = '<div style="color:#e06b6b;font-size:13px;">Error: ' + escHtml(res.d.error || "failed") + '</div>';
         return;
       }
-      var apps = res.d.apps || [];
-      if (apps.length === 0) {
-        box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:20px 0;">No approved apps yet.</div>';
-        return;
-      }
-      box.innerHTML = apps.map(function(a) {
-        var s = _secretsState[a.slug] || {};
-        var open = s.expanded;
-        var isShared = a.slug === "_shared";
-        var borderColor = isShared ? "var(--accent,#4f8ff7)" : "var(--border)";
-        var pathHint = isShared
-          ? '<code style="font-size:11px;color:var(--text-muted);margin-left:6px;">/etc/egelloc/keys/.env.shared</code>'
-          : ' <code style="font-size:11px;color:var(--text-muted);margin-left:6px;">' + escHtml(a.slug) + '</code>';
-        var badge = isShared
-          ? ' <span style="font-size:9px;color:var(--accent,#4f8ff7);text-transform:uppercase;letter-spacing:0.5px;margin-left:8px;border:1px solid var(--accent,#4f8ff7);border-radius:3px;padding:1px 5px;">shared</span>'
-          : '';
-        return '<div style="border:1px solid ' + borderColor + ';border-radius:8px;margin-bottom:8px;overflow:hidden;">' +
-          '<div onclick="toggleSecretsApp(\'' + escHtml(a.slug) + '\')" style="padding:10px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:var(--bg);">' +
-            '<div>' +
-              '<span style="font-size:10px;color:var(--text-muted);margin-right:6px;">' + (open ? '▾' : '▸') + '</span>' +
-              '<strong style="font-size:14px;">' + escHtml(a.name) + '</strong>' + badge +
-              pathHint +
-            '</div>' +
-            '<span style="font-size:12px;color:var(--text-muted);">' + a.key_count + ' secret' + (a.key_count === 1 ? '' : 's') + '</span>' +
-          '</div>' +
-          '<div id="secrets-panel-' + escHtml(a.slug) + '" style="display:' + (open ? 'block' : 'none') + ';padding:12px 14px;">' +
-            (open ? _renderSecretsPanel(a.slug) : '') +
-          '</div>' +
-        '</div>';
-      }).join("");
+      _secretsApps = res.d.apps || [];
+      renderSecretsList();
     })
     .catch(function(e) {
+      _secretsApps = null;
       box.innerHTML = '<div style="color:#e06b6b;font-size:13px;">Network error: ' + escHtml(String(e)) + '</div>';
     });
+}
+
+function renderSecretsList() {
+  var box = document.getElementById("secretsBody");
+  if (!box || _secretsApps === null) return;
+  if (_secretsApps.length === 0) {
+    box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:20px 0;">No approved apps yet.</div>';
+    return;
+  }
+  var input = document.getElementById("secretsSearch");
+  var q = input ? input.value.trim().toLowerCase() : "";
+  var apps = q
+    ? _secretsApps.filter(function(a) {
+        return (a.name || "").toLowerCase().indexOf(q) !== -1 ||
+               (a.slug || "").toLowerCase().indexOf(q) !== -1;
+      })
+    : _secretsApps;
+  if (apps.length === 0) {
+    box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:20px 0;">No apps match "' + escHtml(q) + '".</div>';
+    return;
+  }
+  box.innerHTML = apps.map(function(a) {
+    var s = _secretsState[a.slug] || {};
+    var open = s.expanded;
+    var isShared = a.slug === "_shared";
+    var borderColor = isShared ? "var(--accent,#4f8ff7)" : "var(--border)";
+    var pathHint = isShared
+      ? '<code style="font-size:11px;color:var(--text-muted);margin-left:6px;">/etc/egelloc/keys/.env.shared</code>'
+      : ' <code style="font-size:11px;color:var(--text-muted);margin-left:6px;">' + escHtml(a.slug) + '</code>';
+    var badge = isShared
+      ? ' <span style="font-size:9px;color:var(--accent,#4f8ff7);text-transform:uppercase;letter-spacing:0.5px;margin-left:8px;border:1px solid var(--accent,#4f8ff7);border-radius:3px;padding:1px 5px;">shared</span>'
+      : '';
+    return '<div style="border:1px solid ' + borderColor + ';border-radius:8px;margin-bottom:8px;overflow:hidden;">' +
+      '<div onclick="toggleSecretsApp(\'' + escHtml(a.slug) + '\')" style="padding:10px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:var(--bg);">' +
+        '<div>' +
+          '<span style="font-size:10px;color:var(--text-muted);margin-right:6px;">' + (open ? '▾' : '▸') + '</span>' +
+          '<strong style="font-size:14px;">' + escHtml(a.name) + '</strong>' + badge +
+          pathHint +
+        '</div>' +
+        '<span style="font-size:12px;color:var(--text-muted);">' + a.key_count + ' secret' + (a.key_count === 1 ? '' : 's') + '</span>' +
+      '</div>' +
+      '<div id="secrets-panel-' + escHtml(a.slug) + '" style="display:' + (open ? 'block' : 'none') + ';padding:12px 14px;">' +
+        (open ? _renderSecretsPanel(a.slug) : '') +
+      '</div>' +
+    '</div>';
+  }).join("");
 }
 
 function toggleSecretsApp(slug) {
