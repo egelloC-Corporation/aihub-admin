@@ -861,10 +861,17 @@
 
           <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;">SSH public key</label>
           <textarea name="pubkey" required rows="4" placeholder="ssh-ed25519 AAAA... user@host"
-                    style="width:100%;padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:ui-monospace,monospace;font-size:12px;resize:vertical;margin-bottom:10px;"></textarea>
+                    style="width:100%;padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:ui-monospace,monospace;font-size:12px;resize:vertical;margin-bottom:8px;"></textarea>
+
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--text-muted);line-height:1.55;">
+            <div style="color:var(--text);font-weight:500;margin-bottom:6px;">How do I get my SSH public key?</div>
+            On your laptop, run <code>cat ~/.ssh/id_ed25519.pub</code> (or <code>id_rsa.pub</code>) and paste the output above.
+            If the file doesn't exist, create a key first with <code>ssh-keygen -t ed25519 -C "you@example.com"</code> — press enter through the prompts — then <code>cat</code> the <code>.pub</code> file.
+            It should start with <code>ssh-ed25519</code> or <code>ssh-rsa</code>. <strong>Never paste the matching private key</strong> (the file without <code>.pub</code>).
+          </div>
 
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);margin-bottom:14px;cursor:pointer;">
-            <input type="checkbox" name="sudo"> Grant sudo access
+            <input type="checkbox" name="sudo" checked> Grant sudo access
           </label>
 
           <button type="submit" id="vpsAddBtn"
@@ -1870,6 +1877,7 @@ var TAB_PATHS = {
 };
 var PATH_TO_TAB = {
   "/admin": "permissions",
+  "/admin/permissions": "permissions",
   "/admin/infrastructure": "infrastructure",
   "/admin/vps-users": "vps-users",
   "/admin/apps": "registry",

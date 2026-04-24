@@ -529,7 +529,9 @@ def admin_required(f):
 
 
 @app.route("/admin")
+@app.route("/admin/permissions")
 @app.route("/admin/infrastructure")
+@app.route("/admin/vps-users")
 @app.route("/admin/apps")
 @admin_required
 def admin_page():
