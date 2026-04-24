@@ -350,17 +350,33 @@ def _validate_pubkey(key):
 
 @app.route("/host-users", methods=["GET"])
 def host_users_list():
-    """List login-capable host users (uid ≥ 1000) with sudo flag + key count."""
+    """List host accounts with SSH access: root + human users (uid ≥ 1000).
+
+    Returns the effective "who can log in" set, not just users created via
+    this panel — root and ubuntu/cloud-init accounts are surfaced as
+    read-only so the admin sees the full picture. `managed=true` flags
+    users this panel can delete (uid ≥ 1000 and not a protected name).
+    """
+    protected_csv = ",".join(sorted(PROTECTED_USERNAMES))
     inner = (
-        "getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1 \"|\" $3 \"|\" $6}' | "
+        f"PROTECTED={shlex.quote(protected_csv)}; "
+        "getent passwd | awk -F: '$3 == 0 || ($3 >= 1000 && $3 < 65534) {print $1 \"|\" $3 \"|\" $6}' | "
         "while IFS='|' read name uid home; do "
-        "  sudo_flag=no; "
-        "  if id -nG \"$name\" 2>/dev/null | grep -qw sudo; then sudo_flag=yes; fi; "
         "  keys=0; "
         "  if [ -f \"$home/.ssh/authorized_keys\" ]; then "
         "    keys=$(grep -cvE '^[[:space:]]*(#|$)' \"$home/.ssh/authorized_keys\" 2>/dev/null || echo 0); "
         "  fi; "
-        "  echo \"$name|$uid|$sudo_flag|$keys\"; "
+        # Skip accounts with no SSH access to avoid listing disabled service
+        # users that happen to have uid ≥ 1000. Root and anyone with ≥1 key
+        # are always surfaced.
+        "  if [ \"$uid\" != 0 ] && [ \"$keys\" = 0 ]; then continue; fi; "
+        "  sudo_flag=no; "
+        "  if [ \"$uid\" = 0 ]; then sudo_flag=yes; "
+        "  elif id -nG \"$name\" 2>/dev/null | grep -qw sudo; then sudo_flag=yes; fi; "
+        "  managed=yes; "
+        "  if [ \"$uid\" -lt 1000 ]; then managed=no; fi; "
+        "  case \",$PROTECTED,\" in *,\"$name\",*) managed=no ;; esac; "
+        "  echo \"$name|$uid|$sudo_flag|$keys|$managed\"; "
         "done"
     )
     try:
@@ -373,14 +389,15 @@ def host_users_list():
     users = []
     for line in out.strip().splitlines():
         parts = line.split("|")
-        if len(parts) != 4:
+        if len(parts) != 5:
             continue
-        name, uid, sudo_flag, keys = parts
+        name, uid, sudo_flag, keys, managed = parts
         users.append({
             "name": name,
             "uid": int(uid) if uid.isdigit() else uid,
             "sudo": sudo_flag == "yes",
             "keys": int(keys) if keys.isdigit() else 0,
+            "managed": managed == "yes",
         })
     return jsonify({"users": sorted(users, key=lambda u: u["name"])})
 
