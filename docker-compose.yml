@@ -25,6 +25,8 @@ services:
       - ./ssh_aliases.json:/app/ssh_aliases.json
       # Per-app secrets (matches production SECRETS_DIR default)
       - ./secrets:/var/www/aihub-admin/secrets
+      # Shared API key vault (optional in local dev — create ./shared-keys/ if you want this to persist)
+      - ./shared-keys:/etc/egelloc/keys
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',5051),2); s.close()"]
       interval: 30s

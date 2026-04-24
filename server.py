@@ -2032,11 +2032,18 @@ def admin_vps_users_delete(name):
 # require an explicit reveal (audit-logged).
 
 SECRETS_DIR = os.environ.get("SECRETS_DIR", "/var/www/aihub-admin/secrets")
+# Shared cross-workflow vault — sourced by agents/scripts via
+# `source /etc/egelloc/keys/.env.shared`. Addressed in the API/UI as
+# the reserved slug "_shared" (leading underscore = not a valid app).
+SHARED_SECRETS_PATH = os.environ.get("SHARED_SECRETS_PATH", "/etc/egelloc/keys/.env.shared")
+SHARED_SLUG = "_shared"
 SECRET_KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,63}$")
 APP_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 
 
 def _secrets_path(slug):
+    if slug == SHARED_SLUG:
+        return SHARED_SECRETS_PATH
     return os.path.join(SECRETS_DIR, f"{slug}.env") if APP_SLUG_RE.match(slug or "") else None
 
 
@@ -2102,13 +2109,23 @@ def _mask_secret(value):
     return value[:2] + "•" * max(4, len(value) - 4) + value[-2:]
 
 
+def _is_valid_secret_target(slug):
+    return slug == SHARED_SLUG or bool(APP_SLUG_RE.match(slug or ""))
+
+
 @app.route("/admin/api/secrets")
 @admin_required
 def admin_secrets_apps():
-    """List live/approved apps with a secret-count per app (no values)."""
+    """List shared vault + live/approved apps with per-target key counts."""
     import permissions as _perm
+    result = [{
+        "slug": SHARED_SLUG,
+        "name": "Shared (API Key Vault)",
+        "status": "shared",
+        "key_count": len(_load_secrets(SHARED_SLUG)),
+        "description": "Shared API keys sourced by agents/scripts across all workflows. Stored at /etc/egelloc/keys/.env.shared.",
+    }]
     apps = _perm.get_all_submissions()
-    result = []
     seen_slugs = set()
     for a in apps:
         slug = a.get("slug")
@@ -2124,13 +2141,15 @@ def admin_secrets_apps():
             "status": a.get("status"),
             "key_count": len(pairs),
         })
-    return jsonify({"apps": sorted(result, key=lambda x: x["name"].lower())})
+    # Shared stays pinned to the top; the rest sorted by name
+    tail = sorted(result[1:], key=lambda x: x["name"].lower())
+    return jsonify({"apps": [result[0]] + tail})
 
 
 @app.route("/admin/api/secrets/<slug>")
 @admin_required
 def admin_secrets_get(slug):
-    if not APP_SLUG_RE.match(slug):
+    if not _is_valid_secret_target(slug):
         return jsonify({"error": "invalid app slug"}), 400
     reveal = request.args.get("reveal") == "1"
     pairs = _load_secrets(slug)
@@ -2150,7 +2169,7 @@ def admin_secrets_get(slug):
 @admin_required
 def admin_secrets_set(slug):
     """Upsert a single KEY=value. Body: {key, value}."""
-    if not APP_SLUG_RE.match(slug):
+    if not _is_valid_secret_target(slug):
         return jsonify({"error": "invalid app slug"}), 400
     body = request.get_json(silent=True) or {}
     key = (body.get("key") or "").strip()
@@ -2174,10 +2193,72 @@ def admin_secrets_set(slug):
     return jsonify({"status": "ok", "key": key, "action": "add" if is_new else "update"})
 
 
+@app.route("/admin/api/secrets/<slug>/bulk", methods=["POST"])
+@admin_required
+def admin_secrets_bulk(slug):
+    """Merge a .env blob (body: {text}). Existing keys not in the blob are kept."""
+    if not _is_valid_secret_target(slug):
+        return jsonify({"error": "invalid app slug"}), 400
+    body = request.get_json(silent=True) or {}
+    text = body.get("text", "")
+    if not isinstance(text, str):
+        return jsonify({"error": "text must be a string"}), 400
+    if len(text) > 256 * 1024:
+        return jsonify({"error": "payload exceeds 256KB"}), 400
+
+    incoming = {}
+    invalid = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            invalid.append(raw[:80])
+            continue
+        k, _, v = line.partition("=")
+        k = k.strip()
+        v = v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+            v = v[1:-1]
+        if not SECRET_KEY_RE.match(k):
+            invalid.append(k[:80] or "(blank)")
+            continue
+        if len(v) > 16384:
+            invalid.append(k + " (value >16KB)")
+            continue
+        incoming[k] = v
+
+    existing = _load_secrets(slug)
+    added, updated = [], []
+    for k, v in incoming.items():
+        if k in existing:
+            if existing[k] != v:
+                updated.append(k)
+        else:
+            added.append(k)
+        existing[k] = v
+
+    if added or updated:
+        _save_secrets(slug, existing)
+        log_event("app_secrets", "bulk_import",
+                  user_email=session["user"].get("email"),
+                  user_name=session["user"].get("name"),
+                  app_slug=slug,
+                  detail=f"added={len(added)} updated={len(updated)} invalid={len(invalid)}",
+                  metadata={"added": added, "updated": updated, "invalid_count": len(invalid)})
+
+    return jsonify({
+        "status": "ok",
+        "added": added,
+        "updated": updated,
+        "invalid": invalid,
+    })
+
+
 @app.route("/admin/api/secrets/<slug>/<key>", methods=["DELETE"])
 @admin_required
 def admin_secrets_delete(slug, key):
-    if not APP_SLUG_RE.match(slug) or not SECRET_KEY_RE.match(key):
+    if not _is_valid_secret_target(slug) or not SECRET_KEY_RE.match(key):
         return jsonify({"error": "invalid slug or key"}), 400
     pairs = _load_secrets(slug)
     if key not in pairs:
