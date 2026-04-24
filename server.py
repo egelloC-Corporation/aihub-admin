@@ -1512,6 +1512,34 @@ def api_app_redeploy(slug):
     return jsonify(resp.json()), resp.status_code
 
 
+@app.route("/admin/api/apps/<slug>/logs", methods=["GET"])
+@admin_required
+def api_app_logs(slug):
+    """Stream the container's `docker logs` output (plain text).
+
+    Polled by the admin-panel Logs modal. Passes tail + optional since
+    straight through to deploy-service. Response is text/plain verbatim.
+    """
+    if not re.match(r"^[a-z][a-z0-9-]{1,30}$", slug):
+        return Response("invalid slug\n", status=400, mimetype="text/plain")
+    params = {}
+    tail = request.args.get("tail")
+    since = request.args.get("since")
+    if tail: params["tail"] = tail
+    if since: params["since"] = since
+    try:
+        resp = http_requests.get(
+            f"{DEPLOY_SERVICE_URL}/apps/{slug}/logs",
+            params=params, timeout=20,
+        )
+    except http_requests.RequestException as e:
+        return Response(f"deploy-service unreachable: {e}\n",
+                        status=502, mimetype="text/plain")
+    return Response(resp.text,
+                    status=resp.status_code,
+                    mimetype="text/plain")
+
+
 @app.route("/admin/api/test-deploy", methods=["POST"])
 @admin_required
 def api_test_deploy():

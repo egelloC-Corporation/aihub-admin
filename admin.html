@@ -728,6 +728,10 @@
       background: var(--accent-dim); border-color: var(--accent); color: var(--accent);
     }
     .queue-btn.redeploy:hover { background: var(--accent); color: white; }
+    .queue-btn.logs {
+      background: none; border-color: var(--text-dim); color: var(--text-dim);
+    }
+    .queue-btn.logs:hover { border-color: var(--accent); color: var(--accent); }
 
     /* Edit modal */
     .edit-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center; }
@@ -1257,6 +1261,22 @@ SECRET_TOKEN</span></span>
       <button id="bulkImportBtn" onclick="submitBulkImport()"
               style="padding:8px 14px;background:var(--accent,#4f8ff7);color:white;border:0;border-radius:6px;font-size:13px;cursor:pointer;">Import</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="appLogsModal" style="z-index:1500;">
+  <div class="modal" style="width:min(1000px, 95vw); max-height:90vh; display:flex; flex-direction:column;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;">
+      <h3 id="appLogsTitle" style="margin:0;font-size:15px;">Logs</h3>
+      <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-muted);">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="appLogsFollow" checked> Follow
+        </label>
+        <span id="appLogsStatus"></span>
+        <button onclick="closeAppLogs()" style="background:none;border:1px solid var(--border);border-radius:5px;color:var(--text);padding:4px 12px;font-size:12px;cursor:pointer;">Close</button>
+      </div>
+    </div>
+    <pre id="appLogsBody" style="flex:1;overflow:auto;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin:0;font-family:ui-monospace,monospace;font-size:11px;line-height:1.5;color:var(--text);white-space:pre-wrap;word-break:break-all;min-height:300px;">Loading…</pre>
   </div>
 </div>
 
@@ -3245,6 +3265,7 @@ async function loadSubmissions() {
           '</div>';
       } else if (s.status === 'live') {
         actions = '<div class="queue-item-actions">' +
+          '<button class="queue-btn logs" onclick="openAppLogs(\'' + esc(s.slug) + '\')">Logs</button>' +
           '<button class="queue-btn restart" onclick="restartApp(\'' + esc(s.slug) + '\', ' + s.id + ')">Restart</button>' +
           '<button class="queue-btn redeploy" onclick="redeployApp(\'' + esc(s.slug) + '\', ' + s.id + ')">Redeploy</button>' +
           '<button class="queue-btn undeploy" onclick="undeployApp(\'' + esc(s.slug) + '\', ' + s.id + ')">Undeploy</button>' +
@@ -3607,6 +3628,107 @@ async function undeployApp(appName, submissionId) {
     showToast("Undeploy request failed — endpoint not available");
   }
 }
+
+// ── Per-app container logs (polling) ──
+// docker logs --tail N --timestamps, fetched every ~2s while the modal
+// is open. Client dedupes by the full timestamped line, so overlapping
+// tails don't duplicate output in the view.
+
+var _appLogsState = null;  // { slug, seen: Set, interval, following }
+
+function openAppLogs(slug) {
+  var overlay = document.getElementById("appLogsModal");
+  var body = document.getElementById("appLogsBody");
+  var title = document.getElementById("appLogsTitle");
+  var status = document.getElementById("appLogsStatus");
+  title.textContent = "Logs — " + slug;
+  body.textContent = "Loading…";
+  status.textContent = "";
+  overlay.classList.add("open");
+
+  if (_appLogsState) closeAppLogs();
+  _appLogsState = {
+    slug: slug,
+    seen: Object.create(null),       // line → true
+    following: true,
+    interval: null,
+    lastFetchOk: true,
+  };
+
+  document.getElementById("appLogsFollow").checked = true;
+  document.getElementById("appLogsFollow").onchange = function(e) {
+    if (_appLogsState) _appLogsState.following = e.target.checked;
+  };
+
+  // Initial fetch: larger tail so the pane has context.
+  _fetchAppLogs(slug, 500, true).then(function() {
+    // Start polling.
+    if (_appLogsState && _appLogsState.slug === slug) {
+      _appLogsState.interval = setInterval(function() {
+        _fetchAppLogs(slug, 200, false);
+      }, 2000);
+    }
+  });
+}
+
+function closeAppLogs() {
+  if (_appLogsState && _appLogsState.interval) {
+    clearInterval(_appLogsState.interval);
+  }
+  _appLogsState = null;
+  document.getElementById("appLogsModal").classList.remove("open");
+}
+
+function _fetchAppLogs(slug, tail, isInitial) {
+  var body = document.getElementById("appLogsBody");
+  var status = document.getElementById("appLogsStatus");
+  return fetch("/admin/api/apps/" + encodeURIComponent(slug) + "/logs?tail=" + tail)
+    .then(function(r) { return r.text().then(function(t) { return { ok: r.ok, t: t, status: r.status }; }); })
+    .then(function(res) {
+      if (!_appLogsState || _appLogsState.slug !== slug) return;  // modal closed or switched
+      if (!res.ok) {
+        status.textContent = "error: " + res.status;
+        if (isInitial) body.textContent = res.t || "(error)";
+        _appLogsState.lastFetchOk = false;
+        return;
+      }
+      _appLogsState.lastFetchOk = true;
+      var lines = (res.t || "").split("\n");
+      var newLines = [];
+      lines.forEach(function(line) {
+        if (!line) return;
+        if (_appLogsState.seen[line]) return;
+        _appLogsState.seen[line] = true;
+        newLines.push(line);
+      });
+      if (isInitial) {
+        body.textContent = newLines.join("\n");
+      } else if (newLines.length) {
+        // Append.
+        var sep = body.textContent && !body.textContent.endsWith("\n") ? "\n" : "";
+        body.textContent = body.textContent + sep + newLines.join("\n");
+      }
+      // Auto-scroll if following.
+      if (_appLogsState.following) {
+        body.scrollTop = body.scrollHeight;
+      }
+      var now = new Date();
+      status.textContent = "updated " + now.getHours().toString().padStart(2,"0") + ":" + now.getMinutes().toString().padStart(2,"0") + ":" + now.getSeconds().toString().padStart(2,"0");
+    })
+    .catch(function(e) {
+      if (!_appLogsState || _appLogsState.slug !== slug) return;
+      status.textContent = "network error";
+    });
+}
+
+// Close on outside click + Esc.
+document.addEventListener("DOMContentLoaded", function() {
+  var m = document.getElementById("appLogsModal");
+  if (m) m.addEventListener("click", function(e) { if (e.target === m) closeAppLogs(); });
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape" && _appLogsState) closeAppLogs();
+  });
+});
 
 async function restartApp(slug, submissionId) {
   var confirmed = await showConfirm(

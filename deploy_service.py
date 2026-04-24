@@ -923,6 +923,53 @@ def app_restart(slug):
     return jsonify({"status": "restarted", "container": container})
 
 
+# ── Container logs ──────────────────────────────────────────────────
+# Plain `docker logs --tail N --timestamps`. Returned as text/plain so
+# the caller (admin-panel UI) can show lines verbatim. No streaming —
+# the UI polls every few seconds and dedupes client-side. Streaming
+# would require SSE through Flask + proxy, which adds complexity that
+# isn't worth it for a ~2s-latency debug view.
+
+@app.route("/apps/<slug>/logs", methods=["GET"])
+def app_logs(slug):
+    if not APP_SLUG_RE.match(slug):
+        return Response("invalid slug\n", status=400, mimetype="text/plain")
+    try:
+        tail = int(request.args.get("tail", "500"))
+    except (TypeError, ValueError):
+        tail = 500
+    tail = max(1, min(tail, 10000))
+    since = (request.args.get("since") or "").strip()
+
+    container = f"aihub-{slug}"
+    cmd = ["docker", "logs", "--tail", str(tail), "--timestamps", container]
+    if since:
+        # Docker accepts RFC3339 or relative durations (e.g. "30s", "5m").
+        # Reject anything else to avoid shell-injection surface even
+        # though Popen's argv keeps us safe — better to fail fast.
+        if not re.match(r"^[\w:.+\-]+$", since) or len(since) > 40:
+            return Response("invalid since\n", status=400, mimetype="text/plain")
+        cmd.insert(2, "--since"); cmd.insert(3, since)
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        return Response("timed out fetching logs\n",
+                        status=504, mimetype="text/plain")
+
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()
+        status = 404 if "No such container" in stderr else 500
+        return Response(stderr + "\n", status=status, mimetype="text/plain")
+
+    # docker logs interleaves stdout and stderr; both go to stdout here
+    # because text=True and we didn't split streams. Return as-is.
+    body = proc.stdout
+    if proc.stderr:
+        body = body + proc.stderr
+    return Response(body, mimetype="text/plain")
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("DEPLOY_SERVICE_PORT", 5001))
     app.run(host="0.0.0.0", port=port, debug=False)
