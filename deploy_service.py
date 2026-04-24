@@ -455,6 +455,174 @@ def host_user_keys(name):
     return jsonify({"keys": keys})
 
 
+# ── Per-key add / remove (extends single-key-at-create into multi-key) ──
+
+_DELETE_KEY_SCRIPT = r"""
+import sys, os, base64, hashlib, pwd
+name = sys.argv[1]
+target_fp = sys.argv[2]
+try:
+    pw = pwd.getpwnam(name)
+except KeyError:
+    sys.exit(2)
+path = os.path.join(pw.pw_dir, ".ssh", "authorized_keys")
+if not os.path.exists(path):
+    sys.exit(3)
+with open(path) as f:
+    lines = f.readlines()
+kept, removed = [], 0
+for line in lines:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        kept.append(line); continue
+    parts = stripped.split(None, 2)
+    if len(parts) < 2:
+        kept.append(line); continue
+    try:
+        raw = base64.b64decode(parts[1], validate=False)
+        fp = "SHA256:" + base64.b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")
+    except Exception:
+        kept.append(line); continue
+    if fp == target_fp:
+        removed += 1
+        continue
+    kept.append(line)
+if removed == 0:
+    sys.exit(4)
+# Count remaining non-empty, non-comment key lines
+key_lines = [l for l in kept if l.strip() and not l.strip().startswith("#")]
+if len(key_lines) == 0:
+    # Would lock the user out entirely — refuse. Use DELETE /host-users/<name>
+    # if the intent is to remove the account.
+    sys.exit(5)
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    f.writelines(kept)
+os.chmod(tmp, 0o600)
+os.chown(tmp, pw.pw_uid, pw.pw_gid)
+os.replace(tmp, path)
+print(f"removed:{removed} remaining:{len(key_lines)}")
+"""
+
+
+_ADD_KEY_SCRIPT = r"""
+import sys, os, base64, hashlib, pwd
+name = sys.argv[1]
+new_line = sys.argv[2]
+try:
+    pw = pwd.getpwnam(name)
+except KeyError:
+    sys.exit(2)
+# Compute incoming fingerprint
+parts = new_line.split(None, 2)
+if len(parts) < 2:
+    sys.exit(6)
+try:
+    raw = base64.b64decode(parts[1], validate=False)
+    new_fp = "SHA256:" + base64.b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")
+except Exception:
+    sys.exit(6)
+ssh_dir = os.path.join(pw.pw_dir, ".ssh")
+os.makedirs(ssh_dir, exist_ok=True)
+os.chmod(ssh_dir, 0o700)
+os.chown(ssh_dir, pw.pw_uid, pw.pw_gid)
+path = os.path.join(ssh_dir, "authorized_keys")
+# Dup check
+if os.path.exists(path):
+    with open(path) as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"): continue
+            p = stripped.split(None, 2)
+            if len(p) < 2: continue
+            try:
+                r = base64.b64decode(p[1], validate=False)
+                existing_fp = "SHA256:" + base64.b64encode(hashlib.sha256(r).digest()).decode().rstrip("=")
+            except Exception:
+                continue
+            if existing_fp == new_fp:
+                sys.exit(7)
+# Ensure existing file ends with a newline before appending, so the
+# new key doesn't concatenate onto the last line.
+if os.path.exists(path) and os.path.getsize(path) > 0:
+    with open(path, "rb") as rf:
+        rf.seek(-1, 2)
+        last = rf.read(1)
+    if last != b"\n":
+        with open(path, "a") as f:
+            f.write("\n")
+with open(path, "a") as f:
+    f.write(new_line.rstrip("\n") + "\n")
+os.chmod(path, 0o600)
+os.chown(path, pw.pw_uid, pw.pw_gid)
+print(f"added:{new_fp}")
+"""
+
+
+@app.route("/host-users/<name>/keys", methods=["POST"])
+def host_user_add_key(name):
+    """Append an additional authorized_key to an existing user."""
+    if not USERNAME_RE.match(name):
+        return jsonify({"error": "invalid username"}), 400
+    body = request.get_json(silent=True) or {}
+    pubkey = (body.get("pubkey") or "").strip()
+    err = _validate_pubkey(pubkey)
+    if err:
+        return jsonify({"error": err}), 400
+
+    inner = (
+        f"python3 -c {shlex.quote(_ADD_KEY_SCRIPT)} "
+        f"{shlex.quote(name)} {shlex.quote(pubkey)}"
+    )
+    try:
+        code, out, err_out = run_on_host(inner, timeout=20)
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "timed out adding key"}), 504
+    if code == 2: return jsonify({"error": f"no such user '{name}'"}), 404
+    if code == 6: return jsonify({"error": "malformed public key"}), 400
+    if code == 7: return jsonify({"error": "this key is already installed"}), 409
+    if code != 0:
+        return jsonify({"error": "add key failed",
+                        "stderr": err_out[-400:]}), 500
+    return jsonify({"status": "added", "name": name,
+                    "stdout": out.strip()}), 201
+
+
+@app.route("/host-users/<name>/keys", methods=["DELETE"])
+def host_user_delete_key(name):
+    """Remove one key from a user's authorized_keys by SHA256 fingerprint."""
+    if not USERNAME_RE.match(name):
+        return jsonify({"error": "invalid username"}), 400
+    body = request.get_json(silent=True) or {}
+    fingerprint = (body.get("fingerprint") or "").strip()
+    if not re.match(r"^SHA256:[A-Za-z0-9+/=]+$", fingerprint):
+        return jsonify({"error": "invalid fingerprint (expect SHA256:…)"}), 400
+
+    inner = (
+        f"python3 -c {shlex.quote(_DELETE_KEY_SCRIPT)} "
+        f"{shlex.quote(name)} {shlex.quote(fingerprint)}"
+    )
+    try:
+        code, out, err_out = run_on_host(inner, timeout=20)
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "timed out removing key"}), 504
+    if code == 2: return jsonify({"error": f"no such user '{name}'"}), 404
+    if code == 3: return jsonify({"error": "user has no authorized_keys file"}), 404
+    if code == 4: return jsonify({"error": "no key with that fingerprint"}), 404
+    if code == 5:
+        return jsonify({
+            "error": "refused: that's the user's only key. "
+                     "Delete the whole account via the Delete button instead, "
+                     "or add a replacement key first.",
+        }), 409
+    if code != 0:
+        return jsonify({"error": "key removal failed",
+                        "stderr": err_out[-400:]}), 500
+    return jsonify({"status": "removed", "name": name,
+                    "fingerprint": fingerprint,
+                    "stdout": out.strip()})
+
+
 @app.route("/host-users", methods=["POST"])
 def host_users_create():
     """Create a login user, install one authorized_key, optionally add to sudo."""
