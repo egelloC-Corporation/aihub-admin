@@ -16,6 +16,7 @@ import base64
 import hashlib
 import logging
 import subprocess
+from contextlib import contextmanager
 
 from flask import Flask, request, jsonify
 
@@ -26,6 +27,119 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+
+# ── Deploy-run audit (persists to deploy_runs in the Acq DB) ──
+# Read by incubator-logs' Deploys view. Best-effort: if the DB is
+# unreachable, the deploy still proceeds — audit isn't in the critical
+# path.
+
+def _deploy_db_conn():
+    try:
+        import psycopg2
+    except ImportError:
+        return None
+    try:
+        return psycopg2.connect(
+            host=os.environ.get("ACQ_DB_HOST"),
+            port=int(os.environ.get("ACQ_DB_PORT", "25060")),
+            dbname=os.environ.get("ACQ_DB_NAME", "defaultdb"),
+            user=os.environ.get("INCUBATOR_LOG_DB_USER"),
+            password=os.environ.get("INCUBATOR_LOG_DB_PASSWORD"),
+            sslmode="require",
+            connect_timeout=3,
+        )
+    except Exception as e:
+        log.warning("deploy_runs: DB unreachable (%s) — audit skipped", e)
+        return None
+
+
+class _DeployRun:
+    """Accumulator passed to the caller inside `record_deploy_run()`."""
+
+    def __init__(self, run_id):
+        self.id = run_id
+        self._lines = []
+        self._status = None
+        self._summary = ""
+
+    def log_line(self, s):
+        self._lines.append(str(s))
+        if len(self._lines) > 5000:
+            # keep the tail so we don't balloon memory on long runs
+            self._lines = self._lines[-2500:]
+
+    def set_status(self, s):
+        # Only accept "success" or "failed"; anything else is ignored.
+        if s in ("success", "failed"):
+            self._status = s
+
+    def set_summary(self, s):
+        self._summary = (s or "")[:500]
+
+
+@contextmanager
+def record_deploy_run(action, app_slug, actor_email=None, metadata=None):
+    """Write a deploy_runs row at entry, finalize on exit.
+
+    Default status is 'success' unless:
+    - the caller explicitly sets 'failed' via run.set_status('failed'), or
+    - an exception propagates out of the `with` block.
+
+    DB failures are swallowed (logged but non-fatal) so audit never blocks
+    a deploy.
+    """
+    conn = _deploy_db_conn()
+    run_id = None
+    if conn:
+        try:
+            conn.autocommit = True
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO deploy_runs (action, app_slug, actor_email, metadata) "
+                "VALUES (%s, %s, %s, %s::jsonb) RETURNING id",
+                (action, app_slug or "unknown", actor_email,
+                 json.dumps(metadata or {})),
+            )
+            run_id = cur.fetchone()[0]
+        except Exception as e:
+            log.warning("deploy_runs: insert start failed: %s", e)
+
+    run = _DeployRun(run_id)
+    exc_info = None
+    try:
+        yield run
+    except Exception as e:
+        exc_info = e
+        run.log_line(f"\n[exception] {type(e).__name__}: {e}")
+        run._status = "failed"
+        if not run._summary:
+            run._summary = f"{type(e).__name__}: {str(e)[:300]}"
+    finally:
+        final_status = run._status or "success"
+        if conn and run_id:
+            try:
+                full_log = "\n".join(run._lines)[-200000:]  # ~200KB cap
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE deploy_runs SET ended_at=now(), status=%s, "
+                    "summary=%s, log=%s WHERE id=%s",
+                    (final_status, run._summary, full_log, run_id),
+                )
+            except Exception as e:
+                log.warning("deploy_runs: finalize failed: %s", e)
+            finally:
+                try: conn.close()
+                except Exception: pass
+        if exc_info:
+            raise exc_info
+
+
+def _actor_from_request():
+    """Admin-panel passes X-Actor-Email for proxied requests so we can
+    attribute a deploy to whoever clicked the button. Absent for webhook
+    or internal calls."""
+    return (request.headers.get("X-Actor-Email") or "").strip() or None
 
 
 @app.route("/health", methods=["GET"])
@@ -61,18 +175,40 @@ def deploy():
 
     log.info("Deploy request: app=%s port=%s streamlit_port=%s dry_run=%s", app_name, port, streamlit_port, dry_run)
 
-    result = deploy_app(
-        app_name=app_name,
-        port=int(port),
-        repo_url=repo_url,
-        local_path=local_path,
-        repo_subdir=repo_subdir,
-        streamlit_port=int(streamlit_port) if streamlit_port else None,
-        dry_run=dry_run,
-    )
+    with record_deploy_run(
+        "deploy", app_name,
+        actor_email=_actor_from_request(),
+        metadata={"port": port, "streamlit_port": streamlit_port,
+                  "repo_url": repo_url, "repo_subdir": repo_subdir,
+                  "dry_run": dry_run},
+    ) as run:
+        run.log_line(f"deploy: app={app_name} port={port} repo={repo_url or local_path}")
+        result = deploy_app(
+            app_name=app_name,
+            port=int(port),
+            repo_url=repo_url,
+            local_path=local_path,
+            repo_subdir=repo_subdir,
+            streamlit_port=int(streamlit_port) if streamlit_port else None,
+            dry_run=dry_run,
+        )
+        # deploy_app returns {status, steps?, error?, …}. Persist a readable log.
+        for step in result.get("steps", []) or []:
+            run.log_line(f"[step] {step}")
+        if result.get("error"):
+            run.log_line(f"[error] {result['error']}")
+        run.log_line(f"[result] {json.dumps({k: v for k, v in result.items() if k != 'steps'})}")
+
+        if result["status"] in ("deployed", "dry_run"):
+            run.set_status("success")
+            run.set_summary(f"{app_name} {result['status']}")
+        else:
+            run.set_status("failed")
+            run.set_summary(
+                (result.get("error") or f"{app_name} deploy failed")[:300]
+            )
 
     log.info("Deploy result: %s", result.get("status"))
-
     status_code = 200 if result["status"] in ("deployed", "dry_run") else 500
     return jsonify(result), status_code
 
@@ -155,10 +291,29 @@ def undeploy():
 
     log.info("Undeploy request: app=%s dry_run=%s", app_name, dry_run)
 
-    result = undeploy_app(app_name=app_name, dry_run=dry_run)
+    with record_deploy_run(
+        "undeploy", app_name,
+        actor_email=_actor_from_request(),
+        metadata={"dry_run": dry_run},
+    ) as run:
+        run.log_line(f"undeploy: app={app_name} dry_run={dry_run}")
+        result = undeploy_app(app_name=app_name, dry_run=dry_run)
+        for step in result.get("steps", []) or []:
+            run.log_line(f"[step] {step}")
+        if result.get("error"):
+            run.log_line(f"[error] {result['error']}")
+        run.log_line(f"[result] {json.dumps({k: v for k, v in result.items() if k != 'steps'})}")
+
+        if result["status"] in ("removed", "dry_run"):
+            run.set_status("success")
+            run.set_summary(f"{app_name} {result['status']}")
+        else:
+            run.set_status("failed")
+            run.set_summary(
+                (result.get("error") or f"{app_name} undeploy failed")[:300]
+            )
 
     log.info("Undeploy result: %s", result.get("status"))
-
     status_code = 200 if result["status"] in ("removed", "dry_run") else 500
     return jsonify(result), status_code
 
@@ -738,18 +893,33 @@ def app_restart(slug):
     if not APP_SLUG_RE.match(slug):
         return jsonify({"error": "invalid slug"}), 400
     container = f"aihub-{slug}"
-    try:
-        proc = subprocess.run(
-            ["docker", "restart", container],
-            capture_output=True, text=True, timeout=30,
-        )
-    except subprocess.TimeoutExpired:
-        return jsonify({"error": "restart timed out"}), 504
-    if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()
-        status = 404 if "No such container" in stderr else 500
-        return jsonify({"error": "restart failed",
-                        "stderr": stderr[-400:]}), status
+    with record_deploy_run(
+        "restart", slug,
+        actor_email=_actor_from_request(),
+        metadata={"container": container},
+    ) as run:
+        run.log_line(f"docker restart {container}")
+        try:
+            proc = subprocess.run(
+                ["docker", "restart", container],
+                capture_output=True, text=True, timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            run.set_status("failed"); run.set_summary("restart timed out")
+            return jsonify({"error": "restart timed out"}), 504
+        if proc.stdout:
+            run.log_line(proc.stdout.rstrip())
+        if proc.stderr:
+            run.log_line(proc.stderr.rstrip())
+        if proc.returncode != 0:
+            stderr = (proc.stderr or "").strip()
+            run.set_status("failed")
+            run.set_summary(stderr[:300] or f"docker restart exit {proc.returncode}")
+            status_code = 404 if "No such container" in stderr else 500
+            return jsonify({"error": "restart failed",
+                            "stderr": stderr[-400:]}), status_code
+        run.set_status("success")
+        run.set_summary(f"{container} restarted")
     return jsonify({"status": "restarted", "container": container})
 
 

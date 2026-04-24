@@ -1959,10 +1959,23 @@ def admin_remove_ssh_key():
 # and audit-logged.
 
 def _proxy_deploy(method, path, json_body=None, timeout=60):
-    """Forward a request to deploy-service and mirror its (status, json)."""
+    """Forward a request to deploy-service and mirror its (status, json).
+
+    Passes X-Actor-Email so deploy-service's deploy_runs audit can
+    attribute the run to whoever clicked the button.
+    """
     url = f"{DEPLOY_SERVICE_URL}{path}"
+    headers = {}
     try:
-        resp = http_requests.request(method, url, json=json_body, timeout=timeout)
+        email = (session.get("user") or {}).get("email")
+        if email:
+            headers["X-Actor-Email"] = email
+    except RuntimeError:
+        pass  # called outside a request context (rare)
+    try:
+        resp = http_requests.request(
+            method, url, json=json_body, headers=headers, timeout=timeout,
+        )
     except http_requests.RequestException as e:
         return jsonify({"error": f"deploy-service unreachable: {e}"}), 502
     try:
