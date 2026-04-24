@@ -720,6 +720,14 @@
       background: none; border-color: var(--text-dim); color: var(--text-dim);
     }
     .queue-btn.edit:hover { border-color: var(--accent); color: var(--accent); }
+    .queue-btn.restart {
+      background: none; border-color: var(--text-dim); color: var(--text-dim);
+    }
+    .queue-btn.restart:hover { border-color: var(--accent); color: var(--accent); }
+    .queue-btn.redeploy {
+      background: var(--accent-dim); border-color: var(--accent); color: var(--accent);
+    }
+    .queue-btn.redeploy:hover { background: var(--accent); color: white; }
 
     /* Edit modal */
     .edit-overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center; }
@@ -3111,8 +3119,8 @@ async function loadSubmissions() {
           '</div>';
       } else if (s.status === 'live') {
         actions = '<div class="queue-item-actions">' +
-          '<button class="queue-btn" onclick="restartApp(\'' + esc(s.slug) + '\', ' + s.id + ')">Restart</button>' +
-          '<button class="queue-btn" onclick="redeployApp(\'' + esc(s.slug) + '\', ' + s.id + ')">Redeploy</button>' +
+          '<button class="queue-btn restart" onclick="restartApp(\'' + esc(s.slug) + '\', ' + s.id + ')">Restart</button>' +
+          '<button class="queue-btn redeploy" onclick="redeployApp(\'' + esc(s.slug) + '\', ' + s.id + ')">Redeploy</button>' +
           '<button class="queue-btn undeploy" onclick="undeployApp(\'' + esc(s.slug) + '\', ' + s.id + ')">Undeploy</button>' +
           editBtn + deleteBtn +
           '</div>';
