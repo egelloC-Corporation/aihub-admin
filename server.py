@@ -70,6 +70,33 @@ DEPLOY_SERVICE_URL = os.environ.get("DEPLOY_SERVICE_URL", "http://localhost:5001
 
 _audit_queue = queue.Queue(maxsize=1000)
 
+# email → canonical display name, seeded from history at worker startup and
+# refreshed every time a non-git_push event for that email flows through.
+# git_push rows inherit the canonical name so GitHub logins (e.g.
+# "victor-egelloc") don't split one person into two identities in dashboards.
+_canonical_names = {}
+
+
+def _warm_canonical_names(conn):
+    """Seed _canonical_names with the most recent non-git_push user_name per
+    email. Called once when the audit worker connects; absorbs one round-trip
+    so in-memory lookups stay cheap for every subsequent write."""
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT DISTINCT ON (user_email) user_email, user_name
+               FROM incubator_logs
+               WHERE event_type != 'git_push'
+                 AND user_email IS NOT NULL
+                 AND user_name IS NOT NULL
+               ORDER BY user_email, timestamp DESC"""
+        )
+        for email, name in cur.fetchall():
+            _canonical_names[email] = name
+        cur.close()
+    except Exception as e:
+        log.warning("Canonical-name warm failed: %s", e)
+
 
 def _audit_worker():
     """Background thread that drains the audit queue and writes to PostgreSQL."""
@@ -88,6 +115,19 @@ def _audit_worker():
                     sslmode="require",
                 )
                 conn.autocommit = True
+                _warm_canonical_names(conn)
+
+            # Collapse split identities: keep the canonical name for each
+            # email up to date from SSO-driven events, and rewrite incoming
+            # git_push rows to match so dashboards don't see duplicates.
+            email = entry.get("user_email")
+            name = entry.get("user_name")
+            etype = entry["event_type"]
+            if email and name and etype != "git_push":
+                _canonical_names[email] = name
+            elif etype == "git_push" and email and _canonical_names.get(email):
+                entry["user_name"] = _canonical_names[email]
+
             cur = conn.cursor()
             cur.execute(
                 """INSERT INTO incubator_logs
