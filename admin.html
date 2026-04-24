@@ -1922,25 +1922,24 @@ function loadVpsUsers() {
     }
     box.innerHTML =
       '<table class="db-table" style="width:100%;"><thead><tr>' +
-      '<th>Name</th><th>UID</th><th>Sudo</th><th>Keys</th><th style="width:80px;"></th>' +
+      '<th>User</th><th style="width:70px;">Sudo</th><th style="width:80px;">Keys</th><th style="width:80px;"></th>' +
       '</tr></thead><tbody>' +
       users.map(function(u) {
         var nameCell = '<code style="font-size:12px;">' + escHtml(u.name) + '</code>' +
-          (u.managed ? '' : ' <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-left:4px;">system</span>');
+          (u.managed ? '' : ' <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-left:6px;">system</span>');
         var actionCell = u.managed
           ? '<button class="key-remove" onclick="deleteVpsUser(\'' + escHtml(u.name) + '\')">Delete</button>'
-          : '<span style="font-size:11px;color:var(--text-muted);">read-only</span>';
+          : '';
         var keysCell = u.keys > 0
-          ? '<a href="#" onclick="return toggleVpsUserKeys(\'' + escHtml(u.name) + '\', this)" style="color:var(--accent,#4f8ff7);text-decoration:none;font-size:12px;">' + u.keys + ' <span style="font-size:10px;">▸</span></a>'
+          ? '<a href="#" onclick="return toggleVpsUserKeys(\'' + escHtml(u.name) + '\', this)" style="color:var(--accent,#4f8ff7);text-decoration:none;font-size:12px;white-space:nowrap;">' + u.keys + ' key' + (u.keys === 1 ? '' : 's') + ' <span style="font-size:9px;">▸</span></a>'
           : '<span style="font-size:12px;color:var(--text-muted);">0</span>';
         return '<tr>' +
           '<td>' + nameCell + '</td>' +
-          '<td style="font-size:12px;color:var(--text-muted);">' + u.uid + '</td>' +
           '<td style="font-size:12px;">' + (u.sudo ? '<span style="color:#e0a45a;">yes</span>' : '<span style="color:var(--text-muted);">no</span>') + '</td>' +
           '<td>' + keysCell + '</td>' +
           '<td style="text-align:right;">' + actionCell + '</td>' +
         '</tr>' +
-        '<tr id="vps-keys-' + escHtml(u.name) + '" style="display:none;"><td colspan="5" style="padding:0;background:var(--bg);border-top:0;"><div class="vps-keys-body" style="padding:10px 14px;font-size:12px;color:var(--text-muted);">Loading…</div></td></tr>';
+        '<tr id="vps-keys-' + escHtml(u.name) + '" class="vps-keys-row" style="display:none;"><td colspan="4" style="padding:0;border-top:0;"><div class="vps-keys-body" style="padding:8px 14px 12px;font-size:12px;color:var(--text-muted);">Loading…</div></td></tr>';
       }).join("") +
       '</tbody></table>';
   }).catch(function(e) {
@@ -1975,21 +1974,19 @@ function toggleVpsUserKeys(name, link) {
         body.innerHTML = '<span style="color:var(--text-muted);">No keys parsed.</span>';
         return;
       }
-      body.innerHTML =
-        '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
-        '<thead><tr style="color:var(--text-muted);text-align:left;">' +
-        '<th style="padding:4px 10px 4px 0;font-weight:500;width:110px;">Type</th>' +
-        '<th style="padding:4px 10px;font-weight:500;">Comment</th>' +
-        '<th style="padding:4px 0 4px 10px;font-weight:500;">Fingerprint</th>' +
-        '</tr></thead><tbody>' +
-        keys.map(function(k) {
-          return '<tr>' +
-            '<td style="padding:3px 10px 3px 0;"><code style="font-size:11px;color:var(--text-muted);">' + escHtml(k.type) + '</code></td>' +
-            '<td style="padding:3px 10px;color:var(--text);">' + (k.comment ? escHtml(k.comment) : '<span style="color:var(--text-muted);font-style:italic;">(no comment)</span>') + '</td>' +
-            '<td style="padding:3px 0 3px 10px;"><code style="font-size:11px;color:var(--text-muted);">' + escHtml(k.fingerprint) + '</code></td>' +
-          '</tr>';
-        }).join("") +
-        '</tbody></table>';
+      body.innerHTML = keys.map(function(k) {
+        var label = k.comment
+          ? '<span style="color:var(--text);">' + escHtml(k.comment) + '</span>'
+          : '<span style="color:var(--text-muted);font-style:italic;">(no comment)</span>';
+        var fpShort = k.fingerprint
+          ? '<code title="' + escHtml(k.fingerprint) + '" style="font-size:10px;color:var(--text-muted);">' + escHtml(k.fingerprint.slice(0, 19)) + '…</code>'
+          : '';
+        return '<div style="display:flex;align-items:center;gap:10px;padding:4px 0;">' +
+          '<span style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;min-width:46px;">' + escHtml(k.type.replace(/^ssh-/, '')) + '</span>' +
+          '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + label + '</span>' +
+          fpShort +
+        '</div>';
+      }).join("");
       row.dataset.loaded = "1";
     })
     .catch(function(e) {
