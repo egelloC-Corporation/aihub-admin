@@ -12,6 +12,8 @@ import re
 import sys
 import json
 import shlex
+import base64
+import hashlib
 import logging
 import subprocess
 
@@ -400,6 +402,57 @@ def host_users_list():
             "managed": managed == "yes",
         })
     return jsonify({"users": sorted(users, key=lambda u: u["name"])})
+
+
+@app.route("/host-users/<name>/keys", methods=["GET"])
+def host_user_keys(name):
+    """Return the parsed authorized_keys for one host user.
+
+    Each key has type, comment (rightmost "user@host" token from the key
+    line), and SHA256 fingerprint — matches `ssh-keygen -lf` output and
+    lets the admin identify which physical device each slot belongs to.
+    Accepts `root` even though it's in PROTECTED_USERNAMES (the protected
+    list gates mutation, not reads).
+    """
+    if not name or not USERNAME_RE.match(name):
+        return jsonify({"error": "invalid username"}), 400
+    q_name = shlex.quote(name)
+    inner = (
+        f"if ! id {q_name} >/dev/null 2>&1; then echo 'no such user' >&2; exit 2; fi; "
+        f"home=$(getent passwd {q_name} | cut -d: -f6); "
+        f"if [ -f \"$home/.ssh/authorized_keys\" ]; then cat \"$home/.ssh/authorized_keys\"; fi"
+    )
+    try:
+        code, out, err_out = run_on_host(inner, timeout=15)
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "timed out reading keys"}), 504
+    if code == 2:
+        return jsonify({"error": f"no such user '{name}'"}), 404
+    if code != 0:
+        return jsonify({"error": "key read failed", "stderr": err_out[-400:]}), 500
+
+    keys = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 2)
+        if len(parts) < 2 or parts[0] not in VALID_KEY_TYPES:
+            continue
+        fp = ""
+        try:
+            raw = base64.b64decode(parts[1], validate=False)
+            fp = "SHA256:" + base64.b64encode(
+                hashlib.sha256(raw).digest()
+            ).decode().rstrip("=")
+        except Exception:
+            pass
+        keys.append({
+            "type": parts[0],
+            "comment": parts[2].strip() if len(parts) >= 3 else "",
+            "fingerprint": fp,
+        })
+    return jsonify({"keys": keys})
 
 
 @app.route("/host-users", methods=["POST"])
