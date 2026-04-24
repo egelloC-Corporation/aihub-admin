@@ -275,6 +275,10 @@
     .confirm-modal .btn-cancel:hover { background: var(--surface-hover); color: var(--text); }
     .confirm-modal .btn-danger { background: #ef4444; border-color: #ef4444; color: #fff; }
     .confirm-modal .btn-danger:hover { background: #dc2626; }
+    .confirm-modal .btn-primary { background: #4f8ff7; border-color: #4f8ff7; color: #fff; }
+    .confirm-modal .btn-primary:hover { background: #3b7bd9; }
+    .confirm-modal .btn-warn { background: #e0a45a; border-color: #e0a45a; color: #111; }
+    .confirm-modal .btn-warn:hover { background: #cf9040; }
     .modal-field { margin-bottom: 14px; }
     .modal-field label {
       display: block; font-size: 11px; color: var(--text-dim);
@@ -1786,9 +1790,13 @@ async function removeUser(email) {
 }
 
 var _confirmResolve = null;
-function showConfirm(msg, sub) {
+function showConfirm(msg, sub, opts) {
   document.getElementById("confirmMsg").textContent = msg;
   document.getElementById("confirmSub").textContent = sub || "";
+  var btn = document.getElementById("confirmBtn");
+  // Reset to defaults (Delete / danger), then apply overrides.
+  btn.textContent = (opts && opts.btnText) || "Delete";
+  btn.className = (opts && opts.btnClass) || "btn-danger";
   document.getElementById("confirmModal").classList.add("open");
   return new Promise(function(resolve) { _confirmResolve = resolve; });
 }
@@ -2980,6 +2988,8 @@ async function loadSubmissions() {
           '</div>';
       } else if (s.status === 'live') {
         actions = '<div class="queue-item-actions">' +
+          '<button class="queue-btn" onclick="restartApp(\'' + esc(s.slug) + '\', ' + s.id + ')">Restart</button>' +
+          '<button class="queue-btn" onclick="redeployApp(\'' + esc(s.slug) + '\', ' + s.id + ')">Redeploy</button>' +
           '<button class="queue-btn undeploy" onclick="undeployApp(\'' + esc(s.slug) + '\', ' + s.id + ')">Undeploy</button>' +
           editBtn + deleteBtn +
           '</div>';
@@ -3338,6 +3348,55 @@ async function undeployApp(appName, submissionId) {
     }
   } catch (e) {
     showToast("Undeploy request failed — endpoint not available");
+  }
+}
+
+async function restartApp(slug, submissionId) {
+  var confirmed = await showConfirm(
+    "Restart " + slug + "?",
+    "Briefly interrupts the running container — in-flight requests may fail. Env changes get picked up.",
+    { btnText: "Restart", btnClass: "btn-primary" }
+  );
+  if (!confirmed) return;
+
+  showToast("Restarting " + slug + "…");
+  try {
+    var resp = await fetch("/admin/api/apps/" + encodeURIComponent(slug) + "/restart", {
+      method: "POST",
+    });
+    var data = await resp.json();
+    if (resp.ok && data.status === "restarted") {
+      showToast(slug + " restarted");
+    } else {
+      showToast("Restart failed: " + (data.error || resp.statusText));
+    }
+  } catch (e) {
+    showToast("Restart request failed: " + e);
+  }
+}
+
+async function redeployApp(slug, submissionId) {
+  var confirmed = await showConfirm(
+    "Redeploy " + slug + "?",
+    "Pulls latest main, rebuilds the image, and restarts. ~30s–2min of downtime. Any local host state (log files, etc.) is reset.",
+    { btnText: "Redeploy", btnClass: "btn-warn" }
+  );
+  if (!confirmed) return;
+
+  showToast("Redeploying " + slug + "… (this may take a minute)");
+  try {
+    var resp = await fetch("/admin/api/apps/" + encodeURIComponent(slug) + "/redeploy", {
+      method: "POST",
+    });
+    var data = await resp.json();
+    if (resp.ok && data.status === "deployed") {
+      showToast(slug + " redeployed");
+      loadSubmissions();
+    } else {
+      showToast("Redeploy failed: " + (data.error || resp.statusText));
+    }
+  } catch (e) {
+    showToast("Redeploy request failed: " + e);
   }
 }
 
