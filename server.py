@@ -533,6 +533,7 @@ def admin_required(f):
 @app.route("/admin/infrastructure")
 @app.route("/admin/vps-users")
 @app.route("/admin/apps")
+@app.route("/admin/secrets")
 @admin_required
 def admin_page():
     resp = send_from_directory(".", "admin.html")
@@ -1946,6 +1947,174 @@ def admin_vps_users_delete(name):
                   detail=name,
                   metadata={"name": name})
     return resp, status
+
+
+# ── App secrets management ──
+# Per-app .env files at SECRETS_DIR/<slug>.env. Loaded last at container
+# run time (see scripts/deploy.py), so values here override platform.env
+# and apps/<slug>/.env. Exposed to admins as a masked list; full values
+# require an explicit reveal (audit-logged).
+
+SECRETS_DIR = os.environ.get("SECRETS_DIR", "/var/www/aihub-admin/secrets")
+SECRET_KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,63}$")
+APP_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+
+
+def _secrets_path(slug):
+    return os.path.join(SECRETS_DIR, f"{slug}.env") if APP_SLUG_RE.match(slug or "") else None
+
+
+def _parse_dotenv(text):
+    """KEY=value lines → ordered dict (dupes: last wins). Skips comments."""
+    out = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        if SECRET_KEY_RE.match(key):
+            out[key] = value
+    return out
+
+
+def _serialize_dotenv(items):
+    """(key, value) pairs → .env content, quoting values that need it."""
+    lines = []
+    for key, value in items:
+        value = value if value is not None else ""
+        needs_quote = (not value) or any(c in value for c in ' \t\n"\'\\$`#')
+        if needs_quote:
+            esc = value.replace("\\", "\\\\").replace('"', '\\"')
+            lines.append(f'{key}="{esc}"')
+        else:
+            lines.append(f"{key}={value}")
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def _load_secrets(slug):
+    path = _secrets_path(slug)
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r") as f:
+            return _parse_dotenv(f.read())
+    except OSError:
+        return {}
+
+
+def _save_secrets(slug, items_dict):
+    path = _secrets_path(slug)
+    if not path:
+        raise ValueError("invalid slug")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(_serialize_dotenv(list(items_dict.items())))
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def _mask_secret(value):
+    if not value:
+        return ""
+    if len(value) <= 4:
+        return "•" * len(value)
+    return value[:2] + "•" * max(4, len(value) - 4) + value[-2:]
+
+
+@app.route("/admin/api/secrets")
+@admin_required
+def admin_secrets_apps():
+    """List live/approved apps with a secret-count per app (no values)."""
+    import permissions as _perm
+    apps = _perm.get_all_submissions()
+    result = []
+    seen_slugs = set()
+    for a in apps:
+        slug = a.get("slug")
+        if not slug or slug in seen_slugs or not APP_SLUG_RE.match(slug):
+            continue
+        if a.get("status") not in ("live", "approved"):
+            continue
+        seen_slugs.add(slug)
+        pairs = _load_secrets(slug)
+        result.append({
+            "slug": slug,
+            "name": a.get("name") or slug,
+            "status": a.get("status"),
+            "key_count": len(pairs),
+        })
+    return jsonify({"apps": sorted(result, key=lambda x: x["name"].lower())})
+
+
+@app.route("/admin/api/secrets/<slug>")
+@admin_required
+def admin_secrets_get(slug):
+    if not APP_SLUG_RE.match(slug):
+        return jsonify({"error": "invalid app slug"}), 400
+    reveal = request.args.get("reveal") == "1"
+    pairs = _load_secrets(slug)
+    keys = [{"key": k, "value": (v if reveal else _mask_secret(v))}
+            for k, v in pairs.items()]
+    if reveal:
+        log_event("app_secrets", "reveal_secrets",
+                  user_email=session["user"].get("email"),
+                  user_name=session["user"].get("name"),
+                  app_slug=slug,
+                  detail=f"revealed {len(pairs)} secret(s)",
+                  metadata={"key_count": len(pairs)})
+    return jsonify({"slug": slug, "keys": keys, "revealed": reveal})
+
+
+@app.route("/admin/api/secrets/<slug>", methods=["POST"])
+@admin_required
+def admin_secrets_set(slug):
+    """Upsert a single KEY=value. Body: {key, value}."""
+    if not APP_SLUG_RE.match(slug):
+        return jsonify({"error": "invalid app slug"}), 400
+    body = request.get_json(silent=True) or {}
+    key = (body.get("key") or "").strip()
+    value = body.get("value", "")
+    if not SECRET_KEY_RE.match(key):
+        return jsonify({"error": "key must match [A-Z_][A-Z0-9_]{0,63}"}), 400
+    if not isinstance(value, str):
+        return jsonify({"error": "value must be a string"}), 400
+    if len(value) > 16384:
+        return jsonify({"error": "value exceeds 16KB"}), 400
+    pairs = _load_secrets(slug)
+    is_new = key not in pairs
+    pairs[key] = value
+    _save_secrets(slug, pairs)
+    log_event("app_secrets", "add_secret" if is_new else "update_secret",
+              user_email=session["user"].get("email"),
+              user_name=session["user"].get("name"),
+              app_slug=slug,
+              detail=f"{'added' if is_new else 'updated'} {key}",
+              metadata={"key": key})
+    return jsonify({"status": "ok", "key": key, "action": "add" if is_new else "update"})
+
+
+@app.route("/admin/api/secrets/<slug>/<key>", methods=["DELETE"])
+@admin_required
+def admin_secrets_delete(slug, key):
+    if not APP_SLUG_RE.match(slug) or not SECRET_KEY_RE.match(key):
+        return jsonify({"error": "invalid slug or key"}), 400
+    pairs = _load_secrets(slug)
+    if key not in pairs:
+        return jsonify({"error": "key not found"}), 404
+    del pairs[key]
+    _save_secrets(slug, pairs)
+    log_event("app_secrets", "delete_secret",
+              user_email=session["user"].get("email"),
+              user_name=session["user"].get("name"),
+              app_slug=slug,
+              detail=f"deleted {key}",
+              metadata={"key": key})
+    return jsonify({"status": "ok"})
 
 
 # ── Read-only DB user management ──
