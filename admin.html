@@ -864,10 +864,8 @@
                     style="width:100%;padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:ui-monospace,monospace;font-size:12px;resize:vertical;margin-bottom:8px;"></textarea>
 
           <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--text-muted);line-height:1.55;">
-            <div style="color:var(--text);font-weight:500;margin-bottom:6px;">How do I get my SSH public key?</div>
-            On your laptop, run <code>cat ~/.ssh/id_ed25519.pub</code> (or <code>id_rsa.pub</code>) and paste the output above.
-            If the file doesn't exist, create a key first with <code>ssh-keygen -t ed25519 -C "you@example.com"</code> — press enter through the prompts — then <code>cat</code> the <code>.pub</code> file.
-            It should start with <code>ssh-ed25519</code> or <code>ssh-rsa</code>. <strong>Never paste the matching private key</strong> (the file without <code>.pub</code>).
+            <div style="color:var(--text);font-weight:500;margin-bottom:4px;">How do I get my SSH public key?</div>
+            Run <code>cat ~/.ssh/id_ed25519.pub</code> on your laptop and paste it here. No key yet? <code>ssh-keygen -t ed25519</code> first. Never paste the private key.
           </div>
 
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);margin-bottom:14px;cursor:pointer;">
@@ -1919,7 +1917,7 @@ function loadVpsUsers() {
     }
     var users = res.d.users || [];
     if (users.length === 0) {
-      box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:20px 0;">No VPS users yet. Create one on the left.</div>';
+      box.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:20px 0;">No one currently has VPS access.</div>';
       return;
     }
     box.innerHTML =
@@ -1927,12 +1925,17 @@ function loadVpsUsers() {
       '<th>Name</th><th>UID</th><th>Sudo</th><th>Keys</th><th style="width:80px;"></th>' +
       '</tr></thead><tbody>' +
       users.map(function(u) {
+        var nameCell = '<code style="font-size:12px;">' + escHtml(u.name) + '</code>' +
+          (u.managed ? '' : ' <span style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-left:4px;">system</span>');
+        var actionCell = u.managed
+          ? '<button class="key-remove" onclick="deleteVpsUser(\'' + escHtml(u.name) + '\')">Delete</button>'
+          : '<span style="font-size:11px;color:var(--text-muted);">read-only</span>';
         return '<tr>' +
-          '<td><code style="font-size:12px;">' + escHtml(u.name) + '</code></td>' +
+          '<td>' + nameCell + '</td>' +
           '<td style="font-size:12px;color:var(--text-muted);">' + u.uid + '</td>' +
           '<td style="font-size:12px;">' + (u.sudo ? '<span style="color:#e0a45a;">yes</span>' : '<span style="color:var(--text-muted);">no</span>') + '</td>' +
           '<td style="font-size:12px;color:var(--text-muted);">' + u.keys + '</td>' +
-          '<td style="text-align:right;"><button class="key-remove" onclick="deleteVpsUser(\'' + escHtml(u.name) + '\')">Delete</button></td>' +
+          '<td style="text-align:right;">' + actionCell + '</td>' +
         '</tr>';
       }).join("") +
       '</tbody></table>';
