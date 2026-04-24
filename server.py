@@ -2116,13 +2116,20 @@ def _is_valid_secret_target(slug):
 @app.route("/admin/api/secrets")
 @admin_required
 def admin_secrets_apps():
-    """List shared vault + live/approved apps with per-target key counts."""
+    """List shared vault + live/approved apps with per-target key names.
+
+    Includes key NAMES (not values) so the UI can filter by key name
+    without a second round-trip. Names are not sensitive; values still
+    require the reveal flow on /admin/api/secrets/<slug>.
+    """
     import permissions as _perm
+    shared_pairs = _load_secrets(SHARED_SLUG)
     result = [{
         "slug": SHARED_SLUG,
         "name": "Shared (API Key Vault)",
         "status": "shared",
-        "key_count": len(_load_secrets(SHARED_SLUG)),
+        "key_count": len(shared_pairs),
+        "keys": list(shared_pairs.keys()),
         "description": "Shared API keys sourced by agents/scripts across all workflows. Stored at /etc/egelloc/keys/.env.shared.",
     }]
     apps = _perm.get_all_submissions()
@@ -2140,6 +2147,7 @@ def admin_secrets_apps():
             "name": a.get("name") or slug,
             "status": a.get("status"),
             "key_count": len(pairs),
+            "keys": list(pairs.keys()),
         })
     # Shared stays pinned to the top; the rest sorted by name
     tail = sorted(result[1:], key=lambda x: x["name"].lower())
