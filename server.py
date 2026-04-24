@@ -1902,6 +1902,13 @@ def admin_vps_users_list():
     return _proxy_deploy("GET", "/host-users")
 
 
+@app.route("/admin/api/vps-users/<name>/keys")
+@admin_required
+def admin_vps_users_keys(name):
+    """List parsed authorized_keys for a host user (proxy → deploy-service)."""
+    return _proxy_deploy("GET", f"/host-users/{name}/keys")
+
+
 @app.route("/admin/api/vps-users", methods=["POST"])
 @admin_required
 def admin_vps_users_create():
