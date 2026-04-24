@@ -1436,6 +1436,82 @@ def api_undeploy_app():
         return jsonify({"error": "Undeploy timed out"}), 504
 
 
+@app.route("/admin/api/apps/<slug>/restart", methods=["POST"])
+@admin_required
+def api_app_restart(slug):
+    """Restart a live app's container — `docker restart aihub-<slug>`."""
+    if not re.match(r"^[a-z][a-z0-9-]{1,30}$", slug):
+        return jsonify({"error": "invalid slug"}), 400
+    log_event("app_deploy", "restart_start",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug=slug)
+    try:
+        resp = http_requests.post(
+            f"{DEPLOY_SERVICE_URL}/apps/{slug}/restart", timeout=60,
+        )
+    except http_requests.ConnectionError:
+        return jsonify({"error": "Deploy service unavailable"}), 503
+    except http_requests.Timeout:
+        return jsonify({"error": "Restart timed out"}), 504
+    if resp.ok:
+        log_event("app_deploy", "restart_done",
+                  user_email=session["user"]["email"],
+                  user_name=session["user"].get("name"),
+                  app_slug=slug)
+    return jsonify(resp.json()), resp.status_code
+
+
+@app.route("/admin/api/apps/<slug>/redeploy", methods=["POST"])
+@admin_required
+def api_app_redeploy(slug):
+    """Full redeploy — git pull + build + restart. Same path as the
+    GitHub webhook's auto-deploy, triggered manually from the admin UI."""
+    if not re.match(r"^[a-z][a-z0-9-]{1,30}$", slug):
+        return jsonify({"error": "invalid slug"}), 400
+    # Pull the submission record to recover repo_url + port etc.
+    from permissions import get_db as _get_pdb
+    conn = _get_pdb()
+    row = conn.execute(
+        "SELECT slug, port, streamlit_port, repo_url, repo_subdir "
+        "FROM app_submissions WHERE slug = ? AND status IN ('live', 'approved')",
+        (slug,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({"error": f"no live/approved submission for '{slug}'"}), 404
+    if not row["repo_url"]:
+        return jsonify({"error": "submission has no repo_url — can't redeploy"}), 400
+
+    log_event("app_deploy", "redeploy_start",
+              user_email=session["user"]["email"],
+              user_name=session["user"].get("name"),
+              app_slug=slug,
+              metadata={"port": row["port"], "repo_url": row["repo_url"]})
+
+    deploy_payload = {
+        "app_name": row["slug"],
+        "port": row["port"],
+        "streamlit_port": row["streamlit_port"],
+        "repo_url": row["repo_url"],
+        "repo_subdir": row["repo_subdir"] or None,
+    }
+    try:
+        resp = http_requests.post(
+            f"{DEPLOY_SERVICE_URL}/deploy", json=deploy_payload, timeout=600,
+        )
+    except http_requests.ConnectionError:
+        return jsonify({"error": "Deploy service unavailable"}), 503
+    except http_requests.Timeout:
+        return jsonify({"error": "Redeploy timed out (still running — check logs)"}), 504
+    if resp.ok:
+        log_event("app_deploy", "redeploy_done",
+                  user_email=session["user"]["email"],
+                  user_name=session["user"].get("name"),
+                  app_slug=slug)
+    return jsonify(resp.json()), resp.status_code
+
+
 @app.route("/admin/api/test-deploy", methods=["POST"])
 @admin_required
 def api_test_deploy():

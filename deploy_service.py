@@ -554,6 +554,37 @@ def host_users_delete(name):
     return jsonify({"status": "deleted", "name": name})
 
 
+# ── App lifecycle shortcuts (restart) ──
+# Redeploy reuses the existing /deploy endpoint — callers POST the same
+# body. Restart is just `docker restart <container>`; cheap and adds
+# its own endpoint so the admin panel's audit log can distinguish
+# "operator bounced the container" from "operator triggered a full
+# redeploy with a git pull".
+
+APP_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
+
+
+@app.route("/apps/<slug>/restart", methods=["POST"])
+def app_restart(slug):
+    """Restart the container for a live app — `docker restart aihub-<slug>`."""
+    if not APP_SLUG_RE.match(slug):
+        return jsonify({"error": "invalid slug"}), 400
+    container = f"aihub-{slug}"
+    try:
+        proc = subprocess.run(
+            ["docker", "restart", container],
+            capture_output=True, text=True, timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "restart timed out"}), 504
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()
+        status = 404 if "No such container" in stderr else 500
+        return jsonify({"error": "restart failed",
+                        "stderr": stderr[-400:]}), status
+    return jsonify({"status": "restarted", "container": container})
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("DEPLOY_SERVICE_PORT", 5001))
     app.run(host="0.0.0.0", port=port, debug=False)
