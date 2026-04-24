@@ -2025,6 +2025,47 @@ def admin_vps_users_delete(name):
     return resp, status
 
 
+@app.route("/admin/api/vps-users/<name>/keys", methods=["POST"])
+@admin_required
+def admin_vps_users_add_key(name):
+    """Append an additional SSH key to an existing VPS user."""
+    body = request.get_json(silent=True) or {}
+    pubkey = (body.get("pubkey") or "").strip()
+    resp, status = _proxy_deploy(
+        "POST", f"/host-users/{name}/keys",
+        json_body={"pubkey": pubkey},
+    )
+    if status in (200, 201):
+        log_event("infra_access", "add_vps_user_key",
+                  user_email=session["user"]["email"],
+                  user_name=session["user"].get("name"),
+                  app_slug="admin",
+                  detail=name,
+                  metadata={"name": name,
+                            "key_type": pubkey.split()[0] if pubkey else ""})
+    return resp, status
+
+
+@app.route("/admin/api/vps-users/<name>/keys", methods=["DELETE"])
+@admin_required
+def admin_vps_users_delete_key(name):
+    """Remove a single key from a VPS user by SHA256 fingerprint."""
+    body = request.get_json(silent=True) or {}
+    fingerprint = (body.get("fingerprint") or "").strip()
+    resp, status = _proxy_deploy(
+        "DELETE", f"/host-users/{name}/keys",
+        json_body={"fingerprint": fingerprint},
+    )
+    if status == 200:
+        log_event("infra_access", "delete_vps_user_key",
+                  user_email=session["user"]["email"],
+                  user_name=session["user"].get("name"),
+                  app_slug="admin",
+                  detail=f"{name}: {fingerprint[:20]}…",
+                  metadata={"name": name, "fingerprint": fingerprint})
+    return resp, status
+
+
 # ── App secrets management ──
 # Per-app .env files at SECRETS_DIR/<slug>.env. Loaded last at container
 # run time (see scripts/deploy.py), so values here override platform.env

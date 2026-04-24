@@ -2068,6 +2068,7 @@ function toggleVpsUserKeys(name, link) {
         body.innerHTML = '<span style="color:var(--text-muted);">No keys parsed.</span>';
         return;
       }
+      var canDelete = keys.length > 1;  // don't surface delete button when only one key exists
       body.innerHTML = keys.map(function(k) {
         var label = k.comment
           ? '<span style="color:var(--text);">' + escHtml(k.comment) + '</span>'
@@ -2075,14 +2076,27 @@ function toggleVpsUserKeys(name, link) {
         var fp = k.fingerprint
           ? '<code onclick="copyToClipboard(this, \'' + escHtml(k.fingerprint) + '\')" title="Click to copy" style="cursor:pointer;font-size:10px;color:var(--text-muted);word-break:break-all;user-select:all;">' + escHtml(k.fingerprint) + '</code>'
           : '';
+        var delBtn = (canDelete && k.fingerprint)
+          ? '<button onclick="deleteVpsUserKey(\'' + escHtml(name) + '\', \'' + escHtml(k.fingerprint) + '\', \'' + escHtml(k.comment || '(no comment)') + '\')" title="Remove this key" style="background:none;border:0;color:var(--text-muted);cursor:pointer;font-size:14px;padding:0 4px;line-height:1;">&times;</button>'
+          : '';
         return '<div style="padding:6px 0;border-top:1px solid var(--border);">' +
-          '<div style="display:flex;align-items:baseline;gap:10px;">' +
+          '<div style="display:flex;align-items:center;gap:10px;">' +
             '<span style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;min-width:46px;">' + escHtml(k.type.replace(/^ssh-/, '')) + '</span>' +
             '<span style="flex:1;min-width:0;">' + label + '</span>' +
+            delBtn +
           '</div>' +
           (fp ? '<div style="margin-left:56px;margin-top:2px;">' + fp + '</div>' : '') +
         '</div>';
-      }).join("");
+      }).join("") +
+      // Inline "add another key" form appended under the list.
+      '<div style="padding:10px 0 2px;border-top:1px solid var(--border);margin-top:4px;">' +
+        '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Add another key for <strong>' + escHtml(name) + '</strong></div>' +
+        '<textarea id="vps-addkey-input-' + escHtml(name) + '" rows="2" placeholder="ssh-ed25519 AAAA… user@host" style="width:100%;box-sizing:border-box;padding:6px 9px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:ui-monospace,monospace;font-size:11px;resize:vertical;"></textarea>' +
+        '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px;">' +
+          '<span id="vps-addkey-msg-' + escHtml(name) + '" style="flex:1;font-size:11px;color:var(--text-muted);align-self:center;"></span>' +
+          '<button onclick="addVpsUserKey(\'' + escHtml(name) + '\')" style="padding:5px 12px;background:var(--accent-dim);border:1px solid var(--accent);border-radius:5px;color:var(--accent);font-size:11px;font-weight:600;cursor:pointer;">Add key</button>' +
+        '</div>' +
+      '</div>';
       row.dataset.loaded = "1";
     })
     .catch(function(e) {
@@ -2138,6 +2152,72 @@ function deleteVpsUser(name) {
       } else {
         alert(res.d.error || "Failed");
       }
+    });
+}
+
+function _reloadVpsUserKeys(name) {
+  // Force re-fetch of the expanded key list by clearing the cache marker.
+  var row = document.getElementById("vps-keys-" + name);
+  if (!row) return;
+  row.dataset.loaded = "";
+  // Re-open by clicking the same link — fetch-again path inside
+  // toggleVpsUserKeys handles the refresh without flip-flopping display.
+  var link = document.querySelector('#vpsUsersTable a[onclick*="\'' + name + '\'"]');
+  if (!link) return;
+  // Hide then show so the function's "if hidden → fetch+show" path runs.
+  row.style.display = "none";
+  var arrow = link.querySelector("span");
+  if (arrow) arrow.textContent = "▸";
+  toggleVpsUserKeys(name, link);
+  // Also refresh the outer user row so the "N keys" count updates.
+  loadVpsUsers();
+}
+
+function addVpsUserKey(name) {
+  var input = document.getElementById("vps-addkey-input-" + name);
+  var msg = document.getElementById("vps-addkey-msg-" + name);
+  if (!input || !msg) return;
+  var pubkey = input.value.trim();
+  if (!pubkey) { msg.textContent = "Paste a public key first."; msg.style.color = "#e06b6b"; return; }
+  msg.textContent = "Adding…"; msg.style.color = "var(--text-muted)";
+  fetch("/admin/api/vps-users/" + encodeURIComponent(name) + "/keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pubkey: pubkey }),
+  }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+    .then(function(res) {
+      if (res.ok) {
+        msg.textContent = "Added";
+        msg.style.color = "#5ac27a";
+        input.value = "";
+        setTimeout(function() { _reloadVpsUserKeys(name); }, 400);
+      } else {
+        msg.textContent = res.d.error || "Failed";
+        msg.style.color = "#e06b6b";
+      }
+    })
+    .catch(function(e) {
+      msg.textContent = "Network error: " + e;
+      msg.style.color = "#e06b6b";
+    });
+}
+
+function deleteVpsUserKey(name, fingerprint, label) {
+  if (!confirm("Remove " + label + " from " + name + "?\n\nFingerprint: " + fingerprint + "\n\nSSH from whichever device owns this key will stop working.")) return;
+  fetch("/admin/api/vps-users/" + encodeURIComponent(name) + "/keys", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fingerprint: fingerprint }),
+  }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+    .then(function(res) {
+      if (res.ok) {
+        _reloadVpsUserKeys(name);
+      } else {
+        alert(res.d.error || "Failed");
+      }
+    })
+    .catch(function(e) {
+      alert("Network error: " + e);
     });
 }
 
