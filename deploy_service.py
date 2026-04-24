@@ -18,7 +18,7 @@ import logging
 import subprocess
 from contextlib import contextmanager
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "scripts"))
 from deploy import deploy_app, undeploy_app, test_app, validate_submission
