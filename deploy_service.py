@@ -142,6 +142,119 @@ def _actor_from_request():
     return (request.headers.get("X-Actor-Email") or "").strip() or None
 
 
+# ── Async deploy audit (for /self-deploy and /kb-deploy) ──
+# These endpoints spawn a detached bash subprocess and return 200
+# immediately, so the synchronous `record_deploy_run` context manager
+# can't capture the outcome. Pattern:
+#   1. INSERT a 'running' row, capture the UUID.
+#   2. Pass the UUID + .log file path + ACQ_DB creds to the subprocess
+#      as env vars.
+#   3. Append a small python3 finalize step to the bash chain that
+#      reads the exit code, tail-reads the log file, and UPDATEs the
+#      row via psycopg2.
+# If the subprocess gets SIGKILLed (OOM, manual kill) the finalize
+# never runs and the row stays 'running' — worth a future cleanup
+# sweep, but acceptable for now since this is rare.
+
+_FINALIZE_DEPLOY_PY = r"""
+import os
+try:
+    import psycopg2
+except ImportError:
+    raise SystemExit(0)
+run_id = os.environ.get("DEPLOY_RUN_ID")
+if not run_id:
+    raise SystemExit(0)
+try:
+    exit_code = int(os.environ.get("DEPLOY_EXIT", "0"))
+except (TypeError, ValueError):
+    exit_code = 1
+status = "success" if exit_code == 0 else "failed"
+action = os.environ.get("DEPLOY_ACTION", "async-deploy")
+try:
+    with open(os.environ.get("DEPLOY_LOG_FILE", "/dev/null")) as f:
+        log_text = f.read()[-200000:]
+except Exception:
+    log_text = ""
+try:
+    conn = psycopg2.connect(
+        host=os.environ.get("ACQ_DB_HOST"),
+        port=int(os.environ.get("ACQ_DB_PORT", "25060")),
+        dbname=os.environ.get("ACQ_DB_NAME", "defaultdb"),
+        user=os.environ.get("INCUBATOR_LOG_DB_USER"),
+        password=os.environ.get("INCUBATOR_LOG_DB_PASSWORD"),
+        sslmode="require",
+        connect_timeout=5,
+    )
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        summary = f"{action} {status} (exit {exit_code})"[:500]
+        cur.execute(
+            "UPDATE deploy_runs SET ended_at=NOW(), status=%s, "
+            "summary=%s, log=%s WHERE id=%s",
+            (status, summary, log_text, run_id),
+        )
+    conn.close()
+except Exception:
+    # Finalize is best-effort. If the DB write fails we don't want the
+    # bash subprocess to appear to have crashed — exit code is already
+    # being forwarded by the caller.
+    pass
+"""
+
+
+def _start_async_deploy_run(action, app_slug, metadata=None):
+    """INSERT a 'running' row for an async deploy. Returns the UUID as
+    a string, or None if the DB is unreachable (the caller then skips
+    audit for that run)."""
+    conn = _deploy_db_conn()
+    if conn is None:
+        return None
+    try:
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO deploy_runs (action, app_slug, actor_email, metadata) "
+            "VALUES (%s, %s, %s, %s::jsonb) RETURNING id",
+            (action, app_slug, _actor_from_request(),
+             json.dumps(metadata or {})),
+        )
+        return str(cur.fetchone()[0])
+    except Exception as e:
+        log.warning("deploy_runs: async insert failed: %s", e)
+        return None
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def _async_finalize_shell_suffix():
+    """Shell fragment appended to every async deploy command so the
+    subprocess updates its deploy_runs row when it finishes. Expects
+    DEPLOY_RUN_ID, DEPLOY_ACTION, DEPLOY_LOG_FILE (and the ACQ_DB
+    creds) to be in the subprocess env.
+
+    Captures `$?` from whatever ran immediately before into DEPLOY_EXIT,
+    runs the python3 update, then `exit $EXIT` so the original status
+    code still propagates to anyone watching the subprocess."""
+    return (
+        "; EXIT=$?"
+        "; DEPLOY_EXIT=$EXIT "
+        f"python3 -c {shlex.quote(_FINALIZE_DEPLOY_PY)} 2>/dev/null"
+        "; exit $EXIT"
+    )
+
+
+def _async_subprocess_env(run_id, action, log_file):
+    """Environment for the async subprocess: inherits deploy-service's
+    env (ACQ_DB_* etc. from env_file: .env) and adds the finalize vars."""
+    env = os.environ.copy()
+    if run_id: env["DEPLOY_RUN_ID"] = run_id
+    env["DEPLOY_ACTION"] = action
+    env["DEPLOY_LOG_FILE"] = log_file
+    return env
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "service": "deploy"})
@@ -385,13 +498,23 @@ def self_deploy():
     log_fh = open(log_path, "ab")
     log_fh.write(f"\n=== {__import__('datetime').datetime.utcnow().isoformat()}Z self-deploy ===\n".encode())
     log_fh.flush()
+
+    run_id = _start_async_deploy_run(
+        "self-deploy", "admin-panel",
+        metadata={"repo_path": repo_path, "compose_project": "aihub-admin"},
+    )
+    cmd_with_finalize = cmd + _async_finalize_shell_suffix()
     proc = subprocess.Popen(
-        ["bash", "-c", cmd],
+        ["bash", "-c", cmd_with_finalize],
         stdout=log_fh,
         stderr=subprocess.STDOUT,
         start_new_session=True,
+        env=_async_subprocess_env(run_id, "self-deploy", log_path),
     )
-    return jsonify({"status": "triggered", "pid": proc.pid, "target": "admin-panel", "log": log_path}), 200
+    return jsonify({
+        "status": "triggered", "pid": proc.pid, "target": "admin-panel",
+        "log": log_path, "deploy_run_id": run_id,
+    }), 200
 
 
 @app.route("/kb-deploy", methods=["POST"])
@@ -430,13 +553,23 @@ def kb_deploy():
     log_fh = open(log_path, "ab")
     log_fh.write(f"\n=== {__import__('datetime').datetime.utcnow().isoformat()}Z kb-deploy ===\n".encode())
     log_fh.flush()
+
+    run_id = _start_async_deploy_run(
+        "kb-deploy", "hub",
+        metadata={"kb_path": kb_path, "pm2_process": "ai-hub"},
+    )
+    cmd_with_finalize = cmd + _async_finalize_shell_suffix()
     proc = subprocess.Popen(
-        ["bash", "-c", cmd],
+        ["bash", "-c", cmd_with_finalize],
         stdout=log_fh,
         stderr=subprocess.STDOUT,
         start_new_session=True,
+        env=_async_subprocess_env(run_id, "kb-deploy", log_path),
     )
-    return jsonify({"status": "triggered", "pid": proc.pid, "target": "knowledge-base", "log": log_path}), 200
+    return jsonify({
+        "status": "triggered", "pid": proc.pid, "target": "knowledge-base",
+        "log": log_path, "deploy_run_id": run_id,
+    }), 200
 
 
 @app.route("/kb-deploy/log", methods=["GET"])
