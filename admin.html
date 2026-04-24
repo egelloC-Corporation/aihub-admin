@@ -1284,6 +1284,9 @@ SECRET_TOKEN</span></span>
   <div class="confirm-modal">
     <p id="confirmMsg"></p>
     <div class="confirm-sub" id="confirmSub"></div>
+    <input type="text" id="confirmTypeInput" autocomplete="off" spellcheck="false"
+           oninput="_onConfirmTypeInput()"
+           style="display:none;width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:ui-monospace,monospace;font-size:13px;margin-bottom:14px;box-sizing:border-box;">
     <div class="confirm-btns">
       <button class="btn-cancel" onclick="closeConfirm(false)">Cancel</button>
       <button class="btn-danger" id="confirmBtn" onclick="closeConfirm(true)">Delete</button>
@@ -1840,6 +1843,7 @@ async function removeUser(email) {
 }
 
 var _confirmResolve = null;
+var _confirmExpected = null;  // string the user must type to enable the confirm button, or null
 function showConfirm(msg, sub, opts) {
   document.getElementById("confirmMsg").textContent = msg;
   document.getElementById("confirmSub").textContent = sub || "";
@@ -1847,11 +1851,46 @@ function showConfirm(msg, sub, opts) {
   // Reset to defaults (Delete / danger), then apply overrides.
   btn.textContent = (opts && opts.btnText) || "Delete";
   btn.className = (opts && opts.btnClass) || "btn-danger";
+  // Optional type-to-confirm input: extra consent step for destructive actions
+  // where a single-click confirm would still be too easy to misfire.
+  var input = document.getElementById("confirmTypeInput");
+  _confirmExpected = (opts && opts.typeToConfirm) || null;
+  if (_confirmExpected) {
+    input.style.display = "block";
+    input.value = "";
+    input.placeholder = "Type " + _confirmExpected + " to confirm";
+    btn.disabled = true;
+    btn.style.opacity = "0.5";
+    btn.style.cursor = "not-allowed";
+    setTimeout(function() { input.focus(); }, 0);
+  } else {
+    input.style.display = "none";
+    input.value = "";
+    btn.disabled = false;
+    btn.style.opacity = "";
+    btn.style.cursor = "";
+  }
   document.getElementById("confirmModal").classList.add("open");
   return new Promise(function(resolve) { _confirmResolve = resolve; });
 }
+function _onConfirmTypeInput() {
+  if (!_confirmExpected) return;
+  var input = document.getElementById("confirmTypeInput");
+  var btn = document.getElementById("confirmBtn");
+  var ok = input.value === _confirmExpected;
+  btn.disabled = !ok;
+  btn.style.opacity = ok ? "" : "0.5";
+  btn.style.cursor = ok ? "" : "not-allowed";
+}
 function closeConfirm(result) {
+  // Refuse to resolve with `true` while the type-to-confirm gate is unmet,
+  // so stray Enter keys or scripted clicks can't bypass it.
+  if (result && _confirmExpected) {
+    var input = document.getElementById("confirmTypeInput");
+    if (!input || input.value !== _confirmExpected) return;
+  }
   document.getElementById("confirmModal").classList.remove("open");
+  _confirmExpected = null;
   if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
 }
 document.getElementById("confirmModal").addEventListener("click", function(e) {
@@ -2162,17 +2201,21 @@ function createVpsUser(e) {
   return false;
 }
 
-function deleteVpsUser(name) {
-  if (!confirm("Delete user " + name + "? This runs userdel -r (removes home directory).")) return;
-  fetch("/admin/api/vps-users/" + encodeURIComponent(name), { method: "DELETE" })
-    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
-    .then(function(res) {
-      if (res.ok) {
-        loadVpsUsers();
-      } else {
-        alert(res.d.error || "Failed");
-      }
-    });
+async function deleteVpsUser(name) {
+  var confirmed = await showConfirm(
+    "Delete VPS user " + name + "?",
+    "Runs userdel -r — removes the home directory and all authorized keys. " +
+    "This cannot be undone. Type the username below to confirm.",
+    { typeToConfirm: name }
+  );
+  if (!confirmed) return;
+  var r = await fetch("/admin/api/vps-users/" + encodeURIComponent(name), { method: "DELETE" });
+  var d = await r.json().catch(function() { return {}; });
+  if (r.ok) {
+    loadVpsUsers();
+  } else {
+    alert(d.error || "Failed");
+  }
 }
 
 function _reloadVpsUserKeys(name) {
