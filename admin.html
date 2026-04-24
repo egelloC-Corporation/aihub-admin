@@ -1947,6 +1947,20 @@ function loadVpsUsers() {
   });
 }
 
+function copyToClipboard(el, text) {
+  if (!navigator.clipboard) return;
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = el.style.color;
+    el.style.color = "#5ac27a";
+    var origTitle = el.getAttribute("title");
+    el.setAttribute("title", "Copied!");
+    setTimeout(function() {
+      el.style.color = orig;
+      el.setAttribute("title", origTitle || "Click to copy");
+    }, 900);
+  });
+}
+
 function toggleVpsUserKeys(name, link) {
   var row = document.getElementById("vps-keys-" + name);
   if (!row) return false;
@@ -1978,13 +1992,15 @@ function toggleVpsUserKeys(name, link) {
         var label = k.comment
           ? '<span style="color:var(--text);">' + escHtml(k.comment) + '</span>'
           : '<span style="color:var(--text-muted);font-style:italic;">(no comment)</span>';
-        var fpShort = k.fingerprint
-          ? '<code title="' + escHtml(k.fingerprint) + '" style="font-size:10px;color:var(--text-muted);">' + escHtml(k.fingerprint.slice(0, 19)) + '…</code>'
+        var fp = k.fingerprint
+          ? '<code onclick="copyToClipboard(this, \'' + escHtml(k.fingerprint) + '\')" title="Click to copy" style="cursor:pointer;font-size:10px;color:var(--text-muted);word-break:break-all;user-select:all;">' + escHtml(k.fingerprint) + '</code>'
           : '';
-        return '<div style="display:flex;align-items:center;gap:10px;padding:4px 0;">' +
-          '<span style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;min-width:46px;">' + escHtml(k.type.replace(/^ssh-/, '')) + '</span>' +
-          '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + label + '</span>' +
-          fpShort +
+        return '<div style="padding:6px 0;border-top:1px solid var(--border);">' +
+          '<div style="display:flex;align-items:baseline;gap:10px;">' +
+            '<span style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;min-width:46px;">' + escHtml(k.type.replace(/^ssh-/, '')) + '</span>' +
+            '<span style="flex:1;min-width:0;">' + label + '</span>' +
+          '</div>' +
+          (fp ? '<div style="margin-left:56px;margin-top:2px;">' + fp + '</div>' : '') +
         '</div>';
       }).join("");
       row.dataset.loaded = "1";
