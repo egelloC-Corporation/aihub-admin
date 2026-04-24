@@ -2255,6 +2255,29 @@ def admin_secrets_bulk(slug):
     })
 
 
+@app.route("/admin/api/secrets/<slug>/<key>/value")
+@admin_required
+def admin_secrets_copy(slug, key):
+    """Return a single secret's plaintext value for copy-to-clipboard.
+
+    Audit-logged as `copy_secret` for that specific key — finer-grained
+    than the bulk `reveal_secrets` entry and matches the real use case
+    (admin copies one API key into their local .env).
+    """
+    if not _is_valid_secret_target(slug) or not SECRET_KEY_RE.match(key):
+        return jsonify({"error": "invalid slug or key"}), 400
+    pairs = _load_secrets(slug)
+    if key not in pairs:
+        return jsonify({"error": "key not found"}), 404
+    log_event("app_secrets", "copy_secret",
+              user_email=session["user"].get("email"),
+              user_name=session["user"].get("name"),
+              app_slug=slug,
+              detail=f"copied {key}",
+              metadata={"key": key})
+    return jsonify({"key": key, "value": pairs[key]})
+
+
 @app.route("/admin/api/secrets/<slug>/<key>", methods=["DELETE"])
 @admin_required
 def admin_secrets_delete(slug, key):
