@@ -1230,6 +1230,24 @@ SECRET_TOKEN</span></span>
 
 </div><!-- end container -->
 
+<div class="modal-overlay" id="bulkImportOverlay" style="display:none;align-items:center;justify-content:center;">
+  <div class="modal" style="max-width:600px;width:90%;">
+    <h3 style="margin-top:0;">Import .env → <code id="bulkImportSlug" style="font-size:13px;color:var(--text-muted);"></code></h3>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.5;">
+      Paste <code>KEY=value</code> lines. Existing keys not in the paste are left alone (merge, not replace). Quoted values and comments (<code>#</code>) are supported. Invalid key names are skipped.
+    </div>
+    <textarea id="bulkImportText" rows="14" spellcheck="false"
+              placeholder="OPENAI_API_KEY=sk-...&#10;STRIPE_SECRET_KEY=sk_live_...&#10;# comments are fine"
+              style="width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:ui-monospace,monospace;font-size:12px;resize:vertical;margin-bottom:8px;box-sizing:border-box;"></textarea>
+    <div id="bulkImportResult" style="font-size:12px;min-height:18px;margin-bottom:8px;"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn-cancel" onclick="closeBulkImport()">Close</button>
+      <button id="bulkImportBtn" onclick="submitBulkImport()"
+              style="padding:8px 14px;background:var(--accent,#4f8ff7);color:white;border:0;border-radius:6px;font-size:13px;cursor:pointer;">Import</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="confirmModal">
   <div class="confirm-modal">
     <p id="confirmMsg"></p>
@@ -2132,12 +2150,20 @@ function loadSecrets() {
       box.innerHTML = apps.map(function(a) {
         var s = _secretsState[a.slug] || {};
         var open = s.expanded;
-        return '<div style="border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden;">' +
+        var isShared = a.slug === "_shared";
+        var borderColor = isShared ? "var(--accent,#4f8ff7)" : "var(--border)";
+        var pathHint = isShared
+          ? '<code style="font-size:11px;color:var(--text-muted);margin-left:6px;">/etc/egelloc/keys/.env.shared</code>'
+          : ' <code style="font-size:11px;color:var(--text-muted);margin-left:6px;">' + escHtml(a.slug) + '</code>';
+        var badge = isShared
+          ? ' <span style="font-size:9px;color:var(--accent,#4f8ff7);text-transform:uppercase;letter-spacing:0.5px;margin-left:8px;border:1px solid var(--accent,#4f8ff7);border-radius:3px;padding:1px 5px;">shared</span>'
+          : '';
+        return '<div style="border:1px solid ' + borderColor + ';border-radius:8px;margin-bottom:8px;overflow:hidden;">' +
           '<div onclick="toggleSecretsApp(\'' + escHtml(a.slug) + '\')" style="padding:10px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:var(--bg);">' +
             '<div>' +
               '<span style="font-size:10px;color:var(--text-muted);margin-right:6px;">' + (open ? '▾' : '▸') + '</span>' +
-              '<strong style="font-size:14px;">' + escHtml(a.name) + '</strong>' +
-              ' <code style="font-size:11px;color:var(--text-muted);margin-left:6px;">' + escHtml(a.slug) + '</code>' +
+              '<strong style="font-size:14px;">' + escHtml(a.name) + '</strong>' + badge +
+              pathHint +
             '</div>' +
             '<span style="font-size:12px;color:var(--text-muted);">' + a.key_count + ' secret' + (a.key_count === 1 ? '' : 's') + '</span>' +
           '</div>' +
@@ -2209,12 +2235,15 @@ function _renderSecretsPanel(slug) {
         '</div>';
       }).join("");
   var toolbar =
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap;">' +
       '<button onclick="' + (revealed ? 'hideSecretValues' : 'revealSecretValues') + '(\'' + escHtml(slug) + '\')" ' +
         'style="font-size:12px;padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;">' +
         (revealed ? 'Hide values' : 'Show values') +
       '</button>' +
-      '<button onclick="addSecret(\'' + escHtml(slug) + '\')" style="font-size:12px;padding:4px 10px;background:var(--accent,#4f8ff7);color:white;border:0;border-radius:5px;cursor:pointer;">+ Add secret</button>' +
+      '<div style="display:flex;gap:8px;">' +
+        '<button onclick="openBulkImport(\'' + escHtml(slug) + '\')" style="font-size:12px;padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;">Import .env</button>' +
+        '<button onclick="addSecret(\'' + escHtml(slug) + '\')" style="font-size:12px;padding:4px 10px;background:var(--accent,#4f8ff7);color:white;border:0;border-radius:5px;cursor:pointer;">+ Add secret</button>' +
+      '</div>' +
     '</div>';
   return toolbar + rows;
 }
@@ -2285,6 +2314,63 @@ function deleteSecret(slug, key) {
       }
       var s = _secretsState[slug] || {};
       _fetchSecretsForApp(slug, s.revealed);
+    });
+}
+
+function openBulkImport(slug) {
+  var overlay = document.getElementById("bulkImportOverlay");
+  document.getElementById("bulkImportSlug").textContent = slug;
+  document.getElementById("bulkImportText").value = "";
+  document.getElementById("bulkImportResult").innerHTML = "";
+  overlay.dataset.slug = slug;
+  overlay.style.display = "flex";
+  setTimeout(function() { document.getElementById("bulkImportText").focus(); }, 50);
+}
+
+function closeBulkImport() {
+  document.getElementById("bulkImportOverlay").style.display = "none";
+}
+
+function submitBulkImport() {
+  var overlay = document.getElementById("bulkImportOverlay");
+  var slug = overlay.dataset.slug;
+  var text = document.getElementById("bulkImportText").value;
+  var resultBox = document.getElementById("bulkImportResult");
+  var btn = document.getElementById("bulkImportBtn");
+  if (!text.trim()) {
+    resultBox.innerHTML = '<span style="color:#e06b6b;">Paste some KEY=value lines first.</span>';
+    return;
+  }
+  btn.disabled = true;
+  resultBox.innerHTML = '<span style="color:var(--text-muted);">Importing…</span>';
+  fetch("/admin/api/secrets/" + encodeURIComponent(slug) + "/bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: text }),
+  })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+    .then(function(res) {
+      btn.disabled = false;
+      if (!res.ok) {
+        resultBox.innerHTML = '<span style="color:#e06b6b;">Error: ' + escHtml(res.d.error || "failed") + '</span>';
+        return;
+      }
+      var parts = [];
+      if (res.d.added && res.d.added.length) parts.push('<span style="color:#5ac27a;">added ' + res.d.added.length + '</span>');
+      if (res.d.updated && res.d.updated.length) parts.push('<span style="color:#e0a45a;">updated ' + res.d.updated.length + '</span>');
+      if (res.d.invalid && res.d.invalid.length) parts.push('<span style="color:#e06b6b;">skipped ' + res.d.invalid.length + '</span>');
+      if (parts.length === 0) parts.push('<span style="color:var(--text-muted);">no changes</span>');
+      resultBox.innerHTML = parts.join(' &middot; ');
+      var s = _secretsState[slug] || {};
+      _fetchSecretsForApp(slug, s.revealed);
+      // Refresh outer list to update count, preserving expanded state
+      var saved = JSON.parse(JSON.stringify(_secretsState));
+      loadSecrets();
+      setTimeout(function() { _secretsState = saved; }, 50);
+    })
+    .catch(function(e) {
+      btn.disabled = false;
+      resultBox.innerHTML = '<span style="color:#e06b6b;">Network error: ' + escHtml(String(e)) + '</span>';
     });
 }
 

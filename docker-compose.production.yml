@@ -23,6 +23,9 @@ services:
       # the same path as on the host so SECRETS_DIR default works unchanged.
       # Same files the deploy flow injects via docker run --env-file.
       - /var/www/aihub-admin/secrets:/var/www/aihub-admin/secrets
+      # Shared API key vault sourced by all agents/scripts. Managed through
+      # the Secrets tab as the pseudo-slug "_shared".
+      - /etc/egelloc/keys:/etc/egelloc/keys
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',5051),2); s.close()"]
       interval: 30s
