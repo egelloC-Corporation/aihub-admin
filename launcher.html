@@ -206,15 +206,24 @@
     .icon-briefer { background: rgba(79, 143, 247, 0.15); color: var(--accent); }
     .icon-hub { background: rgba(167, 139, 250, 0.15); color: var(--purple); }
     .icon-admin { background: rgba(245, 158, 11, 0.15); color: var(--orange); }
-    /* Per-app icon colors — cycle through a cohesive palette */
-    .icon-clr-0 { background: rgba(20, 184, 166, 0.15); color: #14b8a6; }  /* teal */
-    .icon-clr-1 { background: rgba(99, 102, 241, 0.15); color: #6366f1; }  /* indigo */
-    .icon-clr-2 { background: rgba(244, 63, 94, 0.15); color: #f43f5e; }   /* rose */
-    .icon-clr-3 { background: rgba(6, 182, 212, 0.15); color: #06b6d4; }   /* cyan */
-    .icon-clr-4 { background: rgba(234, 179, 8, 0.15); color: #eab308; }   /* yellow */
-    .icon-clr-5 { background: rgba(168, 85, 247, 0.15); color: #a855f7; }  /* violet */
-    .icon-clr-6 { background: rgba(249, 115, 22, 0.15); color: #f97316; }  /* orange */
-    .icon-clr-7 { background: rgba(16, 185, 129, 0.15); color: #10b981; }  /* emerald */
+    /* Per-app icon palette — 10 hues spaced across the wheel for clear
+       differentiation. Tile bg uses 0.22 alpha (was 0.15) so the chosen hue
+       reads cleanly against #0f1117 instead of all collapsing to "dark
+       slate." Teal+cyan dropped — too close to "greenish blue" for the
+       hash collisions we were producing. Avoids the brand colors used by
+       icon-hub/briefer/admin so deployed apps stay visually separate from
+       platform apps. assignIconColors() guarantees no two apps share a
+       slot until the palette is exhausted. */
+    .icon-clr-0 { background: rgba(239,  68,  68, 0.22); color: #ef4444; }  /* red */
+    .icon-clr-1 { background: rgba(249, 115,  22, 0.22); color: #f97316; }  /* orange */
+    .icon-clr-2 { background: rgba(250, 204,  21, 0.22); color: #facc15; }  /* yellow */
+    .icon-clr-3 { background: rgba(132, 204,  22, 0.22); color: #84cc16; }  /* lime */
+    .icon-clr-4 { background: rgba( 16, 185, 129, 0.22); color: #10b981; }  /* emerald */
+    .icon-clr-5 { background: rgba( 14, 165, 233, 0.22); color: #0ea5e9; }  /* sky */
+    .icon-clr-6 { background: rgba( 99, 102, 241, 0.22); color: #6366f1; }  /* indigo */
+    .icon-clr-7 { background: rgba(192, 132, 252, 0.22); color: #c084fc; }  /* violet */
+    .icon-clr-8 { background: rgba(217,  70, 239, 0.22); color: #d946ef; }  /* fuchsia */
+    .icon-clr-9 { background: rgba(236,  72, 153, 0.22); color: #ec4899; }  /* pink */
 
     .footer {
       text-align: center; padding: 20px;
@@ -273,10 +282,47 @@ const APP_DEFS = [
   },
 ];
 
+var ICON_PALETTE_SIZE = 10;
 function slugColor(slug) {
   var h = 0;
   for (var i = 0; i < slug.length; i++) h = ((h << 5) - h + slug.charCodeAt(i)) | 0;
-  return ((h % 8) + 8) % 8;
+  return ((h % ICON_PALETTE_SIZE) + ICON_PALETTE_SIZE) % ICON_PALETTE_SIZE;
+}
+
+// Assign each app a palette slot, keeping the slug→color mapping stable
+// across renders when possible (so muscle memory works) BUT guaranteeing
+// uniqueness up to ICON_PALETTE_SIZE — when two slugs hash to the same
+// slot, the later one walks forward to the next free slot instead of
+// duplicating the color. Without this, ~9 deployed apps over 8 buckets
+// guaranteed at least one collision (the "greenish-blue keeps popping up"
+// complaint). Skips apps that already have a brand-specific iconClass
+// (icon-hub/briefer/admin) so platform apps keep their fixed colors.
+function assignIconColors(apps) {
+  var taken = new Set();
+  // Pass 1 — claim preferred slot when free.
+  apps.forEach(function(a) {
+    if (a.iconClass) return;
+    var pref = slugColor(a.slug);
+    if (!taken.has(pref)) {
+      taken.add(pref);
+      a.iconClass = "icon-clr-" + pref;
+    }
+  });
+  // Pass 2 — collisions: walk forward until a slot is free, or wrap if
+  // we have more apps than palette colors (unavoidable duplicates).
+  apps.forEach(function(a) {
+    if (a.iconClass) return;
+    var pref = slugColor(a.slug);
+    for (var step = 1; step <= ICON_PALETTE_SIZE; step++) {
+      var slot = (pref + step) % ICON_PALETTE_SIZE;
+      if (!taken.has(slot)) {
+        taken.add(slot);
+        a.iconClass = "icon-clr-" + slot;
+        return;
+      }
+    }
+    a.iconClass = "icon-clr-" + pref;
+  });
 }
 
 async function loadDeployedApps() {
@@ -290,7 +336,6 @@ async function loadDeployedApps() {
         name: app.name,
         description: app.description || "",
         icon: app.icon || "&#x1f4e6;",
-        iconClass: "icon-clr-" + slugColor(app.slug),
         url: "/" + app.slug + "/",
         alwaysAccessible: false,
       };
@@ -329,6 +374,10 @@ function renderApps(userPerms, deployedApps) {
     grid.innerHTML = '<p style="color:var(--text-muted);text-align:center;grid-column:1/-1;">No applications available. Contact an admin for access.</p>';
     return;
   }
+
+  // Color-assign after merging so collisions are resolved across the
+  // full rendered set, not bucket-by-slug-hash where duplicates leaked.
+  assignIconColors(accessible);
 
   // Apply saved order
   var savedOrder = [];
