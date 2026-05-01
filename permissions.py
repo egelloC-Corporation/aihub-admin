@@ -465,10 +465,18 @@ def reject_submission(submission_id, reviewed_by, reason=""):
 
 
 def delete_submission(submission_id):
-    """Delete an app submission and its registry entry."""
+    """Delete an app and every trace of it.
+
+    Cascade by slug across all tables that reference the app — leaving any
+    one behind causes the launcher drawer (reads app_submissions), the
+    Permissions page columns (reads app_registry), or per-user toggles
+    (reads app_permissions) to keep showing the deleted app. Also clears
+    webhook_seen so a future submission with the same repo gets a fresh
+    "first push" treatment instead of inheriting stale state.
+    """
     conn = get_db()
     row = conn.execute(
-        "SELECT slug, status FROM app_submissions WHERE id = ?",
+        "SELECT slug, status, repo_url FROM app_submissions WHERE id = ?",
         (submission_id,),
     ).fetchone()
     if not row:
@@ -476,14 +484,28 @@ def delete_submission(submission_id):
         return {"error": "Submission not found"}
 
     slug = row["slug"]
+    repo_url = row["repo_url"] or ""
+    permissions_removed = conn.execute(
+        "SELECT COUNT(*) AS n FROM app_permissions WHERE app_slug = ?", (slug,)
+    ).fetchone()["n"]
 
-    # Remove from app_registry
+    # Cascade by slug, not id, so any duplicate submission rows for the same
+    # app (shouldn't happen given the UNIQUE constraint, but defensive)
+    # don't survive the delete and reanimate the app on next page load.
+    conn.execute("DELETE FROM app_permissions WHERE app_slug = ?", (slug,))
     conn.execute("DELETE FROM app_registry WHERE slug = ?", (slug,))
-    # Remove the submission
-    conn.execute("DELETE FROM app_submissions WHERE id = ?", (submission_id,))
+    conn.execute("DELETE FROM app_submissions WHERE slug = ?", (slug,))
+    if repo_url:
+        conn.execute("DELETE FROM webhook_seen WHERE repo_url = ?",
+                     (repo_url.lower().rstrip("/").removesuffix(".git"),))
     conn.commit()
     conn.close()
-    return {"status": "deleted", "slug": slug, "was_live": row["status"] == "live"}
+    return {
+        "status": "deleted",
+        "slug": slug,
+        "was_live": row["status"] == "live",
+        "permissions_removed": permissions_removed,
+    }
 
 
 def edit_submission(submission_id, slug=None, name=None, description=None, icon=None, port=None, streamlit_port=None, repo_url=None, env_keys=None):

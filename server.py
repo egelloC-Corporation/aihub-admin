@@ -1176,18 +1176,28 @@ def api_delete_app():
               user_email=session["user"]["email"],
               user_name=session["user"].get("name"),
               app_slug=result.get("slug") or str(submission_id),
-              metadata={"submission_id": submission_id, "was_live": bool(result.get("was_live"))})
+              metadata={
+                  "submission_id": submission_id,
+                  "was_live": bool(result.get("was_live")),
+                  "permissions_removed": result.get("permissions_removed", 0),
+              })
 
-    # If the app was live, trigger undeploy to clean up containers/routes/DB
+    # If the app was live, trigger undeploy to clean up containers/routes/DB.
+    # Surface the result so the operator finds out when the container kept
+    # running — silent failure here was how stale Refunds icons stuck around.
     if result.get("was_live"):
         try:
-            http_requests.post(
+            r = http_requests.post(
                 f"{DEPLOY_SERVICE_URL}/undeploy",
                 json={"app_name": result["slug"]},
                 timeout=30,
             )
-        except Exception:
-            pass  # Best effort — infra cleanup is non-blocking
+            result["undeploy_ok"] = r.ok
+            if not r.ok:
+                result["undeploy_error"] = f"deploy service returned {r.status_code}"
+        except Exception as e:
+            result["undeploy_ok"] = False
+            result["undeploy_error"] = str(e)
 
     return jsonify(result)
 
