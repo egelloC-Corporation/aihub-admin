@@ -1830,7 +1830,12 @@ async function submitAddUser() {
 }
 
 async function removeUser(email) {
-  if (!confirm("Remove " + email + " and all their permissions?")) return;
+  var confirmed = await showConfirm(
+    "Remove " + email + " and all their permissions?",
+    "Type the email below to confirm.",
+    { typeToConfirm: email }
+  );
+  if (!confirmed) return;
 
   await fetch("/admin/api/remove-user", {
     method: "POST",
@@ -1900,7 +1905,8 @@ document.getElementById("confirmModal").addEventListener("click", function(e) {
 async function deleteUser(email, name) {
   var confirmed = await showConfirm(
     "Remove " + name + "?",
-    "This will revoke all app permissions and hide them from the list."
+    "This will revoke all app permissions and hide them from the list. Type the email below to confirm.",
+    { typeToConfirm: email }
   );
   if (!confirmed) return;
 
@@ -2265,8 +2271,13 @@ function addVpsUserKey(name) {
     });
 }
 
-function deleteVpsUserKey(name, fingerprint, label) {
-  if (!confirm("Remove " + label + " from " + name + "?\n\nFingerprint: " + fingerprint + "\n\nSSH from whichever device owns this key will stop working.")) return;
+async function deleteVpsUserKey(name, fingerprint, label) {
+  var confirmed = await showConfirm(
+    "Remove " + label + " from " + name + "?",
+    "Fingerprint: " + fingerprint + ". SSH from whichever device owns this key will stop working. Type the label below to confirm.",
+    { typeToConfirm: label }
+  );
+  if (!confirmed) return;
   fetch("/admin/api/vps-users/" + encodeURIComponent(name) + "/keys", {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
@@ -2537,8 +2548,13 @@ function copySecret(btn, slug, key) {
     });
 }
 
-function deleteSecret(slug, key) {
-  if (!confirm("Delete " + key + " from " + slug + "?")) return;
+async function deleteSecret(slug, key) {
+  var confirmed = await showConfirm(
+    "Delete " + key + " from " + slug + "?",
+    "This removes a production environment variable and may break the running app. Type the key name below to confirm.",
+    { typeToConfirm: key }
+  );
+  if (!confirmed) return;
   fetch("/admin/api/secrets/" + encodeURIComponent(slug) + "/" + encodeURIComponent(key), { method: "DELETE" })
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
     .then(function(res) {
@@ -2713,7 +2729,12 @@ async function addSshKey() {
 }
 
 async function removeSshKey(id, comment) {
-  if (!confirm("Remove SSH key: " + comment + "?\n\nThis will immediately revoke their server access.")) return;
+  var confirmed = await showConfirm(
+    "Remove SSH key: " + comment + "?",
+    "This will immediately revoke their server access. Type the key label below to confirm.",
+    { typeToConfirm: comment }
+  );
+  if (!confirmed) return;
 
   const resp = await fetch("/admin/api/ssh-keys/remove", {
     method: "POST",
@@ -2950,8 +2971,12 @@ async function addIp(dbSlug) {
 }
 
 async function removeIp(dbSlug, ip) {
-  if (!confirm("Remove " + ip + " from trusted sources?\n\nThis will immediately revoke database access for this IP.")) return;
-  if (!confirm("Are you sure? This cannot be undone without re-adding the IP.")) return;
+  var confirmed = await showConfirm(
+    "Remove " + ip + " from trusted sources?",
+    "This will immediately revoke database access for this IP. Cannot be undone without re-adding. Type the IP below to confirm.",
+    { typeToConfirm: ip }
+  );
+  if (!confirmed) return;
 
   const resp = await fetch("/admin/api/network-access/remove", {
     method: "POST",
@@ -3009,7 +3034,12 @@ function copyCredentials() {
 }
 
 async function dropDbUser(username, dbSlug) {
-  if (!confirm("Revoke read-only access for '" + username + "'?")) return;
+  var confirmed = await showConfirm(
+    "Revoke read-only access for '" + username + "'?",
+    "This drops the database user. Type the username below to confirm.",
+    { typeToConfirm: username }
+  );
+  if (!confirmed) return;
 
   const resp = await fetch("/admin/api/db-users/drop", {
     method: "POST",
@@ -3449,7 +3479,12 @@ function editApp(id) {
 }
 
 async function deleteApp(id, slug) {
-  if (!confirm("Delete " + slug + "? This will remove the submission" + " and undeploy if live.")) return;
+  var confirmed = await showConfirm(
+    "Delete " + slug + "?",
+    "This will remove the submission and undeploy if live. Type the app slug below to confirm.",
+    { typeToConfirm: slug }
+  );
+  if (!confirmed) return;
 
   try {
     var resp = await fetch("/admin/api/apps/delete", {
@@ -3459,8 +3494,20 @@ async function deleteApp(id, slug) {
     });
     var data = await resp.json();
     if (data.status === "deleted") {
-      showToast(slug + " deleted");
+      var msg = slug + " deleted";
+      if (data.permissions_removed) {
+        msg += " (revoked from " + data.permissions_removed + " user" +
+               (data.permissions_removed === 1 ? "" : "s") + ")";
+      }
+      if (data.was_live && data.undeploy_ok === false) {
+        msg += " — undeploy failed: " + (data.undeploy_error || "unknown") +
+               ". Container may still be running.";
+      }
+      showToast(msg);
+      // Refresh the launcher drawer + permissions table so deleted apps
+      // disappear immediately rather than waiting for a hard reload.
       loadSubmissions();
+      if (typeof loadData === "function") loadData();
     } else if (data.error) {
       showToast("Error: " + data.error);
     }
@@ -3651,7 +3698,12 @@ async function testApp(appName, port, repoUrl) {
 }
 
 async function undeployApp(appName, submissionId) {
-  if (!confirm("Undeploy " + appName + "? This will stop the container, remove the Nginx route, and drop the DB user.")) return;
+  var confirmed = await showConfirm(
+    "Undeploy " + appName + "?",
+    "This will stop the container, remove the Nginx route, and drop the DB user. Type the app name below to confirm.",
+    { typeToConfirm: appName }
+  );
+  if (!confirmed) return;
 
   try {
     var resp = await fetch("/admin/api/undeploy", {
