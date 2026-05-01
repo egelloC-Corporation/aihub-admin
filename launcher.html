@@ -203,27 +203,31 @@
       color: var(--text-muted);
     }
 
-    .icon-briefer { background: rgba(79, 143, 247, 0.15); color: var(--accent); }
-    .icon-hub { background: rgba(167, 139, 250, 0.15); color: var(--purple); }
-    .icon-admin { background: rgba(245, 158, 11, 0.15); color: var(--orange); }
+    /* Brand-app tiles: stronger fill + colored ring so platform icons
+       (Briefer, Hub, Admin) are obviously distinct from deployed apps. */
+    .icon-briefer { background: rgba(79, 143, 247, 0.32); color: var(--accent); box-shadow: inset 0 0 0 1px rgba(79, 143, 247, 0.55); }
+    .icon-hub     { background: rgba(167, 139, 250, 0.32); color: var(--purple); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.55); }
+    .icon-admin   { background: rgba(245, 158, 11, 0.32); color: var(--orange); box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.55); }
     /* Per-app icon palette — 10 hues spaced across the wheel for clear
-       differentiation. Tile bg uses 0.22 alpha (was 0.15) so the chosen hue
-       reads cleanly against #0f1117 instead of all collapsing to "dark
-       slate." Teal+cyan dropped — too close to "greenish blue" for the
-       hash collisions we were producing. Avoids the brand colors used by
-       icon-hub/briefer/admin so deployed apps stay visually separate from
-       platform apps. assignIconColors() guarantees no two apps share a
-       slot until the palette is exhausted. */
-    .icon-clr-0 { background: rgba(239,  68,  68, 0.22); color: #ef4444; }  /* red */
-    .icon-clr-1 { background: rgba(249, 115,  22, 0.22); color: #f97316; }  /* orange */
-    .icon-clr-2 { background: rgba(250, 204,  21, 0.22); color: #facc15; }  /* yellow */
-    .icon-clr-3 { background: rgba(132, 204,  22, 0.22); color: #84cc16; }  /* lime */
-    .icon-clr-4 { background: rgba( 16, 185, 129, 0.22); color: #10b981; }  /* emerald */
-    .icon-clr-5 { background: rgba( 14, 165, 233, 0.22); color: #0ea5e9; }  /* sky */
-    .icon-clr-6 { background: rgba( 99, 102, 241, 0.22); color: #6366f1; }  /* indigo */
-    .icon-clr-7 { background: rgba(192, 132, 252, 0.22); color: #c084fc; }  /* violet */
-    .icon-clr-8 { background: rgba(217,  70, 239, 0.22); color: #d946ef; }  /* fuchsia */
-    .icon-clr-9 { background: rgba(236,  72, 153, 0.22); color: #ec4899; }  /* pink */
+       differentiation. Tile bg uses 0.32 alpha + a 1px colored inner ring
+       so the chosen hue reads cleanly against #0f1117 even at a glance.
+       (0.22 was still too muted on dark slate — most tiles read as the
+       same gray-purple from across the room.) Teal+cyan dropped — too
+       close to "greenish blue" for the hash collisions we used to
+       produce. Avoids the brand colors used by icon-hub/briefer/admin so
+       deployed apps stay visually separate from platform apps.
+       assignIconColors() guarantees no two apps share a slot until the
+       palette is exhausted. */
+    .icon-clr-0 { background: rgba(239,  68,  68, 0.32); color: #ef4444; box-shadow: inset 0 0 0 1px rgba(239,  68,  68, 0.55); }  /* red */
+    .icon-clr-1 { background: rgba(249, 115,  22, 0.32); color: #f97316; box-shadow: inset 0 0 0 1px rgba(249, 115,  22, 0.55); }  /* orange */
+    .icon-clr-2 { background: rgba(250, 204,  21, 0.32); color: #facc15; box-shadow: inset 0 0 0 1px rgba(250, 204,  21, 0.55); }  /* yellow */
+    .icon-clr-3 { background: rgba(132, 204,  22, 0.32); color: #84cc16; box-shadow: inset 0 0 0 1px rgba(132, 204,  22, 0.55); }  /* lime */
+    .icon-clr-4 { background: rgba( 16, 185, 129, 0.32); color: #10b981; box-shadow: inset 0 0 0 1px rgba( 16, 185, 129, 0.55); }  /* emerald */
+    .icon-clr-5 { background: rgba( 14, 165, 233, 0.32); color: #0ea5e9; box-shadow: inset 0 0 0 1px rgba( 14, 165, 233, 0.55); }  /* sky */
+    .icon-clr-6 { background: rgba( 99, 102, 241, 0.32); color: #6366f1; box-shadow: inset 0 0 0 1px rgba( 99, 102, 241, 0.55); }  /* indigo */
+    .icon-clr-7 { background: rgba(192, 132, 252, 0.32); color: #c084fc; box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.55); }  /* violet */
+    .icon-clr-8 { background: rgba(217,  70, 239, 0.32); color: #d946ef; box-shadow: inset 0 0 0 1px rgba(217,  70, 239, 0.55); }  /* fuchsia */
+    .icon-clr-9 { background: rgba(236,  72, 153, 0.32); color: #ec4899; box-shadow: inset 0 0 0 1px rgba(236,  72, 153, 0.55); }  /* pink */
 
     .footer {
       text-align: center; padding: 20px;
