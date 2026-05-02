@@ -2485,6 +2485,34 @@ PROTECTED_IPS = [ip.strip() for ip in os.environ.get(
     "PROTECTED_IPS", "165.232.155.132"
 ).split(",") if ip.strip()]  # Droplet IPs — never removable from DB firewall
 
+
+def db_connection_endpoint(slug):
+    """User-facing host/port for slug. Prefers replica when configured.
+
+    Operators get connection strings pointed at the replica so their tools
+    don't need primary firewall access. Admin SQL (CREATE USER, etc.) keeps
+    using cfg["host"] (primary) because DO replicas are read-only at the
+    engine level.
+    """
+    cfg = MANAGED_DATABASES.get(slug, {})
+    host = cfg.get("replica_host") or cfg.get("host", "")
+    port = cfg.get("replica_port") if cfg.get("replica_host") else cfg.get("port")
+    return host, port
+
+
+def db_firewall_cluster_id(slug):
+    """DO cluster ID the firewall endpoints should manage. Prefers replica.
+
+    When DO_DB_REPLICA_NEST is set, all add/remove/list firewall ops target
+    the replica cluster — the primary is then only reachable from the app
+    server (PROTECTED_IPS). Falls back to the primary cluster_id when no
+    replica is configured so the helper is safe on databases without a
+    replica (e.g., 'acquisition').
+    """
+    do = DO_CONFIGS.get(slug, {})
+    return do.get("replica_cluster_id") or do.get("cluster_id", "")
+
+
 READONLY_USERS_FILE = os.path.join(os.path.dirname(__file__), "readonly_db_users.json")
 
 
@@ -2508,12 +2536,13 @@ def admin_network_access():
     """List trusted sources (firewall rules) for a database."""
     db_slug = request.args.get("db", "nest")
     cfg = DO_CONFIGS.get(db_slug)
-    if not cfg or not cfg["token"] or not cfg["cluster_id"]:
+    cluster_id = db_firewall_cluster_id(db_slug)
+    if not cfg or not cfg["token"] or not cluster_id:
         return jsonify({"rules": [], "error": "Not configured for this database"})
 
     try:
         resp = http_requests.get(
-            f"https://api.digitalocean.com/v2/databases/{cfg['cluster_id']}/firewall",
+            f"https://api.digitalocean.com/v2/databases/{cluster_id}/firewall",
             headers={"Authorization": f"Bearer {cfg['token']}"},
             timeout=10,
         )
@@ -2544,13 +2573,14 @@ def admin_add_trusted_source():
         return jsonify({"error": "IP address is required"}), 400
 
     cfg = DO_CONFIGS.get(db_slug)
-    if not cfg or not cfg["token"] or not cfg["cluster_id"]:
+    cluster_id = db_firewall_cluster_id(db_slug)
+    if not cfg or not cfg["token"] or not cluster_id:
         return jsonify({"error": "Not configured for this database"}), 400
 
     try:
         # Get current rules
         resp = http_requests.get(
-            f"https://api.digitalocean.com/v2/databases/{cfg['cluster_id']}/firewall",
+            f"https://api.digitalocean.com/v2/databases/{cluster_id}/firewall",
             headers={"Authorization": f"Bearer {cfg['token']}"},
             timeout=10,
         )
@@ -2567,7 +2597,7 @@ def admin_add_trusted_source():
 
         # Update
         resp = http_requests.put(
-            f"https://api.digitalocean.com/v2/databases/{cfg['cluster_id']}/firewall",
+            f"https://api.digitalocean.com/v2/databases/{cluster_id}/firewall",
             headers={
                 "Authorization": f"Bearer {cfg['token']}",
                 "Content-Type": "application/json",
@@ -2604,13 +2634,14 @@ def admin_remove_trusted_source():
         return jsonify({"error": f"Cannot remove {ip} — this is the application server"}), 400
 
     cfg = DO_CONFIGS.get(db_slug)
-    if not cfg or not cfg["token"] or not cfg["cluster_id"]:
+    cluster_id = db_firewall_cluster_id(db_slug)
+    if not cfg or not cfg["token"] or not cluster_id:
         return jsonify({"error": "Not configured for this database"}), 400
 
     try:
         # Get current rules
         resp = http_requests.get(
-            f"https://api.digitalocean.com/v2/databases/{cfg['cluster_id']}/firewall",
+            f"https://api.digitalocean.com/v2/databases/{cluster_id}/firewall",
             headers={"Authorization": f"Bearer {cfg['token']}"},
             timeout=10,
         )
@@ -2625,7 +2656,7 @@ def admin_remove_trusted_source():
 
         # Update
         resp = http_requests.put(
-            f"https://api.digitalocean.com/v2/databases/{cfg['cluster_id']}/firewall",
+            f"https://api.digitalocean.com/v2/databases/{cluster_id}/firewall",
             headers={
                 "Authorization": f"Bearer {cfg['token']}",
                 "Content-Type": "application/json",
@@ -2647,6 +2678,107 @@ def admin_remove_trusted_source():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/admin/api/db-firewall/mirror", methods=["POST"])
+@admin_required
+@feature_required("infra_access")
+def admin_mirror_firewall():
+    """Copy trusted IPs from the primary cluster onto the replica cluster.
+
+    One-shot migration helper. Idempotent: rules already present on the
+    replica are skipped. Used during the primary→replica access cutover so
+    operators don't have to add 20+ IPs by hand.
+
+    Refuses to run when either cluster ID is missing or when both env vars
+    point at the same cluster — guards against re-mirroring onto primary
+    by accident, which would be a no-op but confusing in the audit log.
+
+    Each IP added emits a separate `mirror_trusted_ip` audit event so the
+    log shows exactly what was copied.
+    """
+    body = request.get_json() or {}
+    db_slug = body.get("db", "nest")
+    cfg = DO_CONFIGS.get(db_slug)
+    if not cfg or not cfg.get("token"):
+        return jsonify({"error": f"DO API not configured for {db_slug}"}), 400
+
+    primary = cfg.get("cluster_id", "")
+    replica = cfg.get("replica_cluster_id", "")
+    if not primary or not replica:
+        return jsonify({"error": "Both cluster_id and replica_cluster_id must be set"}), 400
+    if primary == replica:
+        return jsonify({"error": "cluster_id and replica_cluster_id are identical — nothing to mirror"}), 400
+
+    try:
+        def _rules(cluster_id):
+            r = http_requests.get(
+                f"https://api.digitalocean.com/v2/databases/{cluster_id}/firewall",
+                headers={"Authorization": f"Bearer {cfg['token']}"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            return r.json().get("rules", [])
+
+        primary_rules = _rules(primary)
+        replica_rules = _rules(replica)
+        replica_values = {r["value"] for r in replica_rules}
+
+        # Build the new replica rule set: existing + any primary rule not
+        # already present. Mirror the type as well (ip_addr, k8s, droplet,
+        # tag, etc.) so we don't silently downgrade non-IP rules to ip_addr.
+        added = []
+        skipped = []
+        new_rules = [{"type": r["type"], "value": r["value"]} for r in replica_rules]
+        for r in primary_rules:
+            if r["value"] in replica_values:
+                skipped.append(r["value"])
+            else:
+                new_rules.append({"type": r["type"], "value": r["value"]})
+                added.append({"type": r["type"], "value": r["value"]})
+
+        if not added:
+            return jsonify({
+                "status": "ok",
+                "added": [],
+                "skipped": skipped,
+                "total_primary": len(primary_rules),
+                "total_replica_after": len(replica_rules),
+                "message": "Replica already has every primary rule — nothing to do.",
+            })
+
+        put = http_requests.put(
+            f"https://api.digitalocean.com/v2/databases/{replica}/firewall",
+            headers={
+                "Authorization": f"Bearer {cfg['token']}",
+                "Content-Type": "application/json",
+            },
+            json={"rules": new_rules},
+            timeout=15,
+        )
+        put.raise_for_status()
+
+        for r in added:
+            log_event("infra_network", "mirror_trusted_ip",
+                      user_email=session["user"]["email"],
+                      user_name=session["user"].get("name"),
+                      app_slug="admin",
+                      detail=f"{r['value']} ({r['type']}) → {db_slug} replica",
+                      metadata={"ip": r["value"], "rule_type": r["type"], "db": db_slug,
+                                "from_cluster": primary, "to_cluster": replica})
+
+        log.info("Mirrored %d firewall rule(s) primary→replica for %s by %s",
+                 len(added), db_slug, session["user"]["email"])
+
+        return jsonify({
+            "status": "ok",
+            "added": [r["value"] for r in added],
+            "skipped": skipped,
+            "total_primary": len(primary_rules),
+            "total_replica_after": len(new_rules),
+        })
+    except Exception as e:
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+
+
 @app.route("/admin/api/my-ip")
 @admin_required
 @feature_required("infra_access")
@@ -2664,6 +2796,11 @@ def admin_databases():
     """List all managed databases and their info."""
     dbs = []
     for slug, cfg in MANAGED_DATABASES.items():
+        conn_host, conn_port = db_connection_endpoint(slug)
+        # is_replica = the user-facing endpoint is the read replica, not
+        # primary. UI uses this to show a "read-only replica" badge so the
+        # operator handing out creds isn't confused about which host they
+        # just got.
         dbs.append({
             "slug": slug,
             "label": cfg["label"],
@@ -2671,6 +2808,9 @@ def admin_databases():
             "host": cfg["host"],
             "port": cfg["port"],
             "database": cfg["database"],
+            "connection_host": conn_host,
+            "connection_port": conn_port,
+            "is_replica": bool(cfg.get("replica_host")),
         })
     return jsonify({"databases": dbs})
 
@@ -2766,15 +2906,34 @@ def admin_create_db_user():
                   detail=f"{username} on {db_slug}",
                   metadata={"username": username, "db": db_slug})
 
+        conn_host, conn_port = db_connection_endpoint(db_slug)
+        # MySQL clients trip on DO's self-signed CA without --ssl-ca
+        # (ERROR 2026, or hang on MariaDB). Bake the flag into the
+        # template so operators don't burn the support round-trip we
+        # discovered during phase 0. The pg branch preserves the
+        # pre-existing template byte-for-byte so this change is a no-op
+        # for the acquisition database — that work is out of scope here.
+        if engine == "pg":
+            connection_string = (
+                f"mysql -h {conn_host} -P {conn_port} -u {username} -p'{password}' {db_name}"
+            )
+            ca_cert_note = None
+        else:
+            connection_string = (
+                f"mysql -h {conn_host} -P {conn_port} -u {username} -p'{password}' "
+                f"--ssl-ca=/path/to/ca-certificate.crt {db_name}"
+            )
+            ca_cert_note = "Download the CA cert from DO console → cluster → Overview → 'Download CA certificate', then point --ssl-ca at it. MariaDB clients should drop --ssl-mode; Oracle MySQL should use --ssl-mode=VERIFY_CA."
         return jsonify({
             "status": "ok",
             "username": username,
             "password": password,
-            "host": cfg["host"],
-            "port": cfg["port"],
+            "host": conn_host,
+            "port": conn_port,
             "database": db_name,
             "access": "read-only (SELECT only)",
-            "connection_string": f"mysql -h {cfg['host']} -P {cfg['port']} -u {username} -p'{password}' {db_name}",
+            "connection_string": connection_string,
+            "ca_cert_note": ca_cert_note,
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
