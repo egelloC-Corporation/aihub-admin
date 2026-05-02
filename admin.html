@@ -3043,7 +3043,7 @@ async function mirrorFirewall(dbSlug) {
   var confirmed = await showConfirm(
     "Mirror " + primaryOnly.length + " IP" + (primaryOnly.length === 1 ? "" : "s") + " from primary → replica?",
     "Adds these to the replica firewall: " + sample + ". Idempotent. Primary is not modified. Type 'mirror' below to confirm.",
-    { typeToConfirm: "mirror" }
+    { typeToConfirm: "mirror", btnText: "Mirror IPs", btnClass: "btn-primary" }
   );
   if (!confirmed) {
     if (resultEl) resultEl.style.display = "none";
