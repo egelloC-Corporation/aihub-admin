@@ -2915,6 +2915,51 @@ def admin_mirror_firewall():
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
 
 
+@app.route("/db-ca-cert/<slug>.crt")
+@login_required
+def db_ca_cert(slug):
+    """Serve the DO managed-DB cluster's CA certificate as a download.
+
+    The CA cert isn't secret — it's the certificate the database hands out
+    over TLS to anyone who connects. We host it here so internal users
+    don't need DO console access just to extract it; gating on AIHub login
+    is sufficient since they already have it for the launcher.
+
+    Targets the same cluster the user-facing connection points at — i.e.
+    replica when a replica is configured. Filename ends in .crt so the
+    browser saves it instead of rendering.
+    """
+    import base64
+
+    cfg = DO_CONFIGS.get(slug)
+    if not cfg or not cfg.get("token"):
+        return jsonify({"error": f"DO API not configured for {slug}"}), 404
+    cluster_id = db_firewall_cluster_id(slug)
+    if not cluster_id:
+        return jsonify({"error": "No cluster ID configured"}), 404
+
+    try:
+        resp = http_requests.get(
+            f"https://api.digitalocean.com/v2/databases/{cluster_id}/ca",
+            headers={"Authorization": f"Bearer {cfg['token']}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        cert_b64 = resp.json()["ca"]["certificate"]
+        cert_pem = base64.b64decode(cert_b64).decode("utf-8")
+    except Exception as e:
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+
+    return Response(
+        cert_pem,
+        mimetype="application/x-pem-file",
+        headers={
+            "Content-Disposition": f'attachment; filename="{slug}-ca-certificate.crt"',
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
+
+
 @app.route("/admin/api/my-ip")
 @admin_required
 @feature_required("infra_access")
@@ -3095,7 +3140,11 @@ def admin_create_db_user():
                 f"mysql -h {conn_host} -P {conn_port} -u {username} -p'{password}' "
                 f"--ssl-ca=/path/to/ca-certificate.crt {db_name}"
             )
-            ca_cert_note = "Download the CA cert from DO console → cluster → Overview → 'Download CA certificate', then point --ssl-ca at it. MariaDB clients should drop --ssl-mode; Oracle MySQL should use --ssl-mode=VERIFY_CA."
+            ca_cert_note = (
+                f"Download the CA cert at /db-ca-cert/{db_slug}.crt (AIHub login is enough — no DO console needed), "
+                "then point --ssl-ca at the saved file. MariaDB clients should drop --ssl-mode; "
+                "Oracle MySQL should use --ssl-mode=VERIFY_CA."
+            )
         return jsonify({
             "status": "ok",
             "username": username,
