@@ -2772,12 +2772,23 @@ async function loadDBUsers() {
     const users = usersData.users || [];
 
     html += '<div class="infra-card">';
-    html += '<h3>' + db.label + ' <span class="count">(' + users.length + ' read-only)</span></h3>';
+    html += '<h3>' + db.label + ' <span class="count">(' + users.length + ' read-only)</span>';
+    if (db.is_replica) {
+      html += ' <span style="display:inline-block;margin-left:6px;padding:1px 8px;border-radius:10px;background:rgba(99,102,241,0.18);color:#a5b4fc;font-size:10px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;vertical-align:middle;">replica · read-only</span>';
+    }
+    html += '</h3>';
     html += '<div class="subtitle">' + db.description + '</div>';
     html += '<div class="db-meta">';
-    html += '<div class="db-meta-item">Host: <code>' + db.host + '</code></div>';
-    html += '<div class="db-meta-item">Port: <code>' + db.port + '</code></div>';
-    html += '<div class="db-meta-item">Database: <code>' + db.database + '</code></div>';
+    // Show the user-facing endpoint (replica when configured) — that's
+    // where operators connect. Primary stays available as a hover title
+    // for diagnostics; admin SQL still routes there but isn't a thing
+    // operators should be using.
+    var displayHost = db.connection_host || db.host;
+    var displayPort = db.connection_port || db.port;
+    var hostTitle = db.is_replica ? ('Admin SQL routes to primary: ' + db.host) : '';
+    html += '<div class="db-meta-item" title="' + escHtml(hostTitle) + '">Host: <code>' + escHtml(displayHost) + '</code></div>';
+    html += '<div class="db-meta-item">Port: <code>' + escHtml(String(displayPort)) + '</code></div>';
+    html += '<div class="db-meta-item">Database: <code>' + escHtml(db.database) + '</code></div>';
     html += '</div>';
 
     if (users.length === 0) {
