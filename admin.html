@@ -1339,7 +1339,13 @@ let selectedEmails = new Set();
 
 async function loadData() {
   const resp = await fetch("/admin/api/users");
+  if (!resp.ok) {
+    throw new Error("HTTP " + resp.status + " from /admin/api/users");
+  }
   DATA = await resp.json();
+  if (!DATA || !Array.isArray(DATA.users) || !Array.isArray(DATA.apps)) {
+    throw new Error("Malformed response from /admin/api/users");
+  }
 
   // Stats
   document.getElementById("statUsers").textContent = DATA.users.length;
@@ -1348,6 +1354,11 @@ async function loadData() {
   let totalPerms = 0;
   DATA.users.forEach(u => totalPerms += u.permissions.length);
   document.getElementById("statPerms").textContent = totalPerms;
+
+  // If the server couldn't reach Nest MySQL it returns staff_error and an
+  // empty/partial users list. Show a banner so the operator can see what
+  // happened instead of staring at "Loading..." or a half-empty table.
+  renderStaffErrorBanner(DATA.staff_error);
 
   // App pill filters
   const pillContainer = document.getElementById("appPills");
@@ -3148,7 +3159,39 @@ async function dropDbUser(username, dbSlug) {
   loadDBUsers();
 }
 
-loadData().catch(function(e) { console.warn("loadData failed:", e); });
+function renderLoadError(err) {
+  // Replace the "Loading..." placeholder with an actionable error message
+  // so a broken /admin/api/users (timeouts, 500s, malformed JSON) doesn't
+  // sit on "Loading..." with the failure only visible in DevTools.
+  var msg = (err && err.message) ? err.message : String(err);
+  var tbody = document.getElementById("tableBody");
+  if (tbody) {
+    tbody.innerHTML =
+      '<tr><td colspan="10" class="empty-state" style="color:#e06b6b;text-align:left;padding:18px 14px;">' +
+      '<div style="font-weight:600;margin-bottom:4px;">Failed to load users</div>' +
+      '<div style="font-size:12px;color:var(--text-muted);">' + escHtml(msg) + '</div>' +
+      '<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">Check the admin-panel container logs for the underlying MySQL error, then retry.</div>' +
+      '<button class="add-user-btn" style="margin-top:10px;font-size:12px;" onclick="loadData().catch(renderLoadError)">Retry</button>' +
+      '</td></tr>';
+  }
+}
+
+function renderStaffErrorBanner(errText) {
+  var existing = document.getElementById("staffErrorBanner");
+  if (!errText) { if (existing) existing.remove(); return; }
+  var banner = existing || document.createElement("div");
+  banner.id = "staffErrorBanner";
+  banner.style.cssText = "margin:0 0 12px 0;padding:10px 14px;background:rgba(224,107,107,0.10);border:1px solid rgba(224,107,107,0.45);border-radius:8px;color:#f0b4b4;font-size:12px;";
+  banner.innerHTML =
+    '<strong>⚠ Nest MySQL unreachable.</strong> Showing custom users only — staff list is empty until the Nest connection recovers. ' +
+    '<span style="color:var(--text-muted);">(' + escHtml(errText) + ')</span>';
+  if (!existing) {
+    var panel = document.getElementById("tab-permissions");
+    if (panel) panel.insertBefore(banner, panel.firstChild);
+  }
+}
+
+loadData().catch(renderLoadError);
 
 // ── App Registry ──
 
