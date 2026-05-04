@@ -23,13 +23,17 @@ from authlib.integrations.flask_client import OAuth
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# MySQL config for staff list (Nest DB)
+# MySQL config for staff list (Nest DB).
+# connection_timeout caps the TCP connect at 5s — without it, a primary
+# firewall hiccup hangs /admin/api/users for ~30s and the Permissions tab
+# sits on "Loading..." with no user-visible error.
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "localhost"),
     "port": int(os.environ.get("DB_PORT", "3306")),
     "user": os.environ.get("DB_USER", ""),
     "password": os.environ.get("DB_PASSWORD", ""),
     "database": os.environ.get("DB_NAME", "egelloc"),
+    "connection_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", "5")),
 }
 from permissions import (
     get_user_permissions, user_has_permission, grant_permission,
@@ -583,18 +587,43 @@ def admin_page():
     return resp
 
 
+def _fetch_staff_safe():
+    """Fetch Nest staff via the pool, returning ([], error_str) on failure.
+
+    Pool connections can go stale if the DO-managed primary cycles or
+    drops idle TCP — without ping(reconnect=True) the next get_connection()
+    hands back a dead handle and the cursor hangs. On total MySQL failure
+    we still want the Permissions tab to render with custom users, so the
+    caller can show an error banner instead of staying on "Loading...".
+    """
+    if not pool:
+        return [], None
+    try:
+        conn = pool.get_connection()
+    except Exception as e:
+        log.warning("admin_users: pool.get_connection failed: %s", e)
+        return [], f"{type(e).__name__}: {e}"
+    try:
+        try:
+            conn.ping(reconnect=True, attempts=1, delay=0)
+        except Exception as e:
+            log.warning("admin_users: ping failed, will retry once: %s", e)
+        return get_egelloc_staff(conn), None
+    except Exception as e:
+        log.warning("admin_users: get_egelloc_staff failed: %s", e)
+        return [], f"{type(e).__name__}: {e}"
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 @app.route("/admin/api/users")
 @admin_required
 def admin_users():
     """Get all egelloC staff with their current permissions."""
-    if pool:
-        conn = pool.get_connection()
-        try:
-            staff = get_egelloc_staff(conn)
-        finally:
-            conn.close()
-    else:
-        staff = []
+    staff, staff_error = _fetch_staff_safe()
 
     all_perms = get_all_permissions()
     apps = get_all_apps()
@@ -667,7 +696,12 @@ def admin_users():
             u["roles"] = role_override
             u["roles_edited"] = True
 
-    return jsonify({"users": users, "apps": apps})
+    payload = {"users": users, "apps": apps}
+    if staff_error:
+        # Surface MySQL-side failures so the UI shows a banner instead of
+        # silently sitting on "Loading...". Custom users still render.
+        payload["staff_error"] = staff_error
+    return jsonify(payload)
 
 
 @app.route("/admin/api/grant", methods=["POST"])
@@ -802,15 +836,10 @@ def admin_permission_groups():
     Served no-store so role edits reach the Incubator Logs dropdown on the
     next refetch instead of sitting in an HTTP cache.
     """
-    # Fetch staff + custom users (same sources admin_users() uses)
-    if pool:
-        conn = pool.get_connection()
-        try:
-            staff = get_egelloc_staff(conn)
-        finally:
-            conn.close()
-    else:
-        staff = []
+    # Fetch staff + custom users (same sources admin_users() uses).
+    # Uses the resilient helper so a downed MySQL still returns a 200 with
+    # whatever role groups can be derived from custom users + overrides.
+    staff, _ = _fetch_staff_safe()
     custom = get_custom_users()
 
     # Collect hidden users + role overrides from permissions.db. Overrides
