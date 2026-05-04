@@ -23,10 +23,21 @@ from authlib.integrations.flask_client import OAuth
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# MySQL config for staff list (Nest DB).
-# connection_timeout caps the TCP connect at 5s — without it, a primary
-# firewall hiccup hangs /admin/api/users for ~30s and the Permissions tab
-# sits on "Loading..." with no user-visible error.
+# MySQL config for the Nest DB. Two profiles:
+#
+# DB_CONFIG       — primary, used for DDL (CREATE/DROP USER on the Access
+#                   tab via MANAGED_DATABASES["nest"]) and sync-check.
+# DB_READ_CONFIG  — replica when NEST_REPLICA_HOST is set, primary otherwise.
+#                   Used by the connection pool, which is only touched by
+#                   pure SELECT paths (admin_users / admin_permission_groups).
+#                   This means the Permissions tab keeps working even when
+#                   the primary firewall doesn't admit the admin-panel
+#                   container — that was the root cause of the empty staff
+#                   list after the primary→replica access cutover.
+#
+# connection_timeout caps the TCP connect at 5s — without it, a firewall
+# hiccup hangs /admin/api/users for ~30s and the Permissions tab sits on
+# "Loading..." with no user-visible error.
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "localhost"),
     "port": int(os.environ.get("DB_PORT", "3306")),
@@ -34,6 +45,11 @@ DB_CONFIG = {
     "password": os.environ.get("DB_PASSWORD", ""),
     "database": os.environ.get("DB_NAME", "egelloc"),
     "connection_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", "5")),
+}
+DB_READ_CONFIG = {
+    **DB_CONFIG,
+    "host": os.environ.get("NEST_REPLICA_HOST", "") or DB_CONFIG["host"],
+    "port": int(os.environ.get("NEST_REPLICA_PORT") or 0) or DB_CONFIG["port"],
 }
 from permissions import (
     get_user_permissions, user_has_permission, grant_permission,
@@ -596,24 +612,28 @@ def _fetch_staff_safe():
     handle whose ping reconnected onto the wrong DB) is debuggable from
     the browser without needing shell access.
     """
+    read_pool = get_read_pool()
     diag = {
-        "pool": pool is not None,
+        "pool": read_pool is not None,
         "sync_enabled": os.environ.get("FEATURES_STAFF_SYNC", "true").strip().lower()
             in ("1", "true", "yes", "on"),
         "ping_ok": None,
         "query_ok": None,
         "error": None,
-        "db_host": DB_CONFIG.get("host"),
-        "db_name": DB_CONFIG.get("database"),
+        "db_host": DB_READ_CONFIG.get("host"),
+        "db_name": DB_READ_CONFIG.get("database"),
     }
-    if not pool:
-        diag["error"] = "MySQL pool not initialized — check DB_HOST/DB_USER/DB_PASSWORD at boot"
+    if not read_pool:
+        diag["error"] = (
+            "MySQL read pool not initialized — replica unreachable at boot "
+            "(check NEST_REPLICA_HOST/DB_USER/DB_PASSWORD)"
+        )
         return [], diag
     if not diag["sync_enabled"]:
         diag["error"] = "FEATURES_STAFF_SYNC is disabled on this instance"
         return [], diag
     try:
-        conn = pool.get_connection()
+        conn = read_pool.get_connection()
     except Exception as e:
         log.warning("admin_users: pool.get_connection failed: %s", e)
         diag["error"] = f"{type(e).__name__}: {e}"
@@ -3155,16 +3175,36 @@ def admin_db_sync_check():
     return jsonify(out)
 
 
-# ── Connection pool (for admin user management — reads staff from Nest DB) ──
-try:
-    pool = mysql.connector.pooling.MySQLConnectionPool(
-        pool_name="admin",
-        pool_size=2,
-        **DB_CONFIG
-    )
-except Exception as e:
-    log.warning("MySQL pool failed to initialize (expected in local dev without MySQL): %s", e)
-    pool = None
+# ── Read connection pool for the Permissions tab ──
+# Targets the replica via DB_READ_CONFIG so a primary firewall block (or
+# the cutover where admin-panel's IP is no longer admitted to primary)
+# doesn't empty the staff list. SELECT-only paths.
+def _build_read_pool():
+    try:
+        return mysql.connector.pooling.MySQLConnectionPool(
+            pool_name="admin_read",
+            pool_size=2,
+            **DB_READ_CONFIG,
+        )
+    except Exception as e:
+        log.warning("MySQL read pool init failed (host=%s): %s",
+                    DB_READ_CONFIG.get("host"), e)
+        return None
+
+
+pool = _build_read_pool()
+
+
+def get_read_pool():
+    """Return the read pool, lazily reinitializing if boot-time init failed.
+
+    Saves us a container restart when the replica was briefly unreachable
+    at boot but came back online a moment later.
+    """
+    global pool
+    if pool is None:
+        pool = _build_read_pool()
+    return pool
 
 
 # ── Briefer removed — now runs as standalone app at egelloC-Corporation/coaching-briefer ──
