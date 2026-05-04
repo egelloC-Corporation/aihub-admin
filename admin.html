@@ -1356,9 +1356,11 @@ async function loadData() {
   document.getElementById("statPerms").textContent = totalPerms;
 
   // If the server couldn't reach Nest MySQL it returns staff_error and an
-  // empty/partial users list. Show a banner so the operator can see what
-  // happened instead of staring at "Loading..." or a half-empty table.
-  renderStaffErrorBanner(DATA.staff_error);
+  // empty/partial users list. Even with no error, surface a banner when
+  // the Nest staff count is 0 — most likely cause is FEATURES_STAFF_SYNC
+  // being off or DB credentials pointing at the wrong cluster, both of
+  // which silently return [] from get_egelloc_staff.
+  renderStaffErrorBanner(DATA.staff_error, DATA.staff_diag, DATA.nest_count);
 
   // App pill filters
   const pillContainer = document.getElementById("appPills");
@@ -3176,15 +3178,40 @@ function renderLoadError(err) {
   }
 }
 
-function renderStaffErrorBanner(errText) {
+function renderStaffErrorBanner(errText, diag, nestCount) {
   var existing = document.getElementById("staffErrorBanner");
-  if (!errText) { if (existing) existing.remove(); return; }
+  // Hide banner only when Nest returned ≥1 staff and no error was reported.
+  // 0 staff with no error == silent failure mode (most likely
+  // FEATURES_STAFF_SYNC=false or wrong DB target), still worth surfacing.
+  var silentEmpty = !errText && (nestCount === 0);
+  if (!errText && !silentEmpty) { if (existing) existing.remove(); return; }
+
   var banner = existing || document.createElement("div");
   banner.id = "staffErrorBanner";
   banner.style.cssText = "margin:0 0 12px 0;padding:10px 14px;background:rgba(224,107,107,0.10);border:1px solid rgba(224,107,107,0.45);border-radius:8px;color:#f0b4b4;font-size:12px;";
-  banner.innerHTML =
-    '<strong>⚠ Nest MySQL unreachable.</strong> Showing custom users only — staff list is empty until the Nest connection recovers. ' +
-    '<span style="color:var(--text-muted);">(' + escHtml(errText) + ')</span>';
+
+  var headline = errText
+    ? '<strong>⚠ Nest MySQL unreachable.</strong> '
+    : '<strong>⚠ Nest staff list is empty.</strong> ';
+  var body = errText
+    ? 'Showing custom users only — staff list is empty until the Nest connection recovers.'
+    : 'Custom users only. Most likely FEATURES_STAFF_SYNC is off, the admin-panel container is pointed at the wrong DB, or the staff query returned 0 rows.';
+
+  var diagBits = [];
+  if (diag) {
+    diagBits.push('pool=' + (diag.pool ? 'ok' : 'missing'));
+    diagBits.push('sync=' + (diag.sync_enabled ? 'on' : 'off'));
+    if (diag.ping_ok !== null && diag.ping_ok !== undefined) diagBits.push('ping=' + (diag.ping_ok ? 'ok' : 'fail'));
+    if (diag.query_ok !== null && diag.query_ok !== undefined) diagBits.push('query=' + (diag.query_ok ? 'ok' : 'fail'));
+    if (diag.db_host) diagBits.push('host=' + diag.db_host);
+    if (diag.db_name) diagBits.push('db=' + diag.db_name);
+  }
+  var detail = errText ? errText : '';
+  if (diagBits.length) detail = (detail ? detail + ' · ' : '') + diagBits.join(' · ');
+
+  banner.innerHTML = headline + body +
+    (detail ? ' <span style="color:var(--text-muted);">(' + escHtml(detail) + ')</span>' : '');
+
   if (!existing) {
     var panel = document.getElementById("tab-permissions");
     if (panel) panel.insertBefore(banner, panel.firstChild);

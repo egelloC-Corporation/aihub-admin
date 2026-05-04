@@ -588,30 +588,52 @@ def admin_page():
 
 
 def _fetch_staff_safe():
-    """Fetch Nest staff via the pool, returning ([], error_str) on failure.
+    """Fetch Nest staff via the pool, returning (staff, diag_dict).
 
-    Pool connections can go stale if the DO-managed primary cycles or
-    drops idle TCP — without ping(reconnect=True) the next get_connection()
-    hands back a dead handle and the cursor hangs. On total MySQL failure
-    we still want the Permissions tab to render with custom users, so the
-    caller can show an error banner instead of staying on "Loading...".
+    diag_dict has keys: pool, sync_enabled, ping_ok, query_ok, error,
+    db_host, db_name. The caller surfaces it through /admin/api/users so
+    silent-empty-staff (most likely FEATURES_STAFF_SYNC=false or a stale
+    handle whose ping reconnected onto the wrong DB) is debuggable from
+    the browser without needing shell access.
     """
+    diag = {
+        "pool": pool is not None,
+        "sync_enabled": os.environ.get("FEATURES_STAFF_SYNC", "true").strip().lower()
+            in ("1", "true", "yes", "on"),
+        "ping_ok": None,
+        "query_ok": None,
+        "error": None,
+        "db_host": DB_CONFIG.get("host"),
+        "db_name": DB_CONFIG.get("database"),
+    }
     if not pool:
-        return [], None
+        diag["error"] = "MySQL pool not initialized — check DB_HOST/DB_USER/DB_PASSWORD at boot"
+        return [], diag
+    if not diag["sync_enabled"]:
+        diag["error"] = "FEATURES_STAFF_SYNC is disabled on this instance"
+        return [], diag
     try:
         conn = pool.get_connection()
     except Exception as e:
         log.warning("admin_users: pool.get_connection failed: %s", e)
-        return [], f"{type(e).__name__}: {e}"
+        diag["error"] = f"{type(e).__name__}: {e}"
+        return [], diag
     try:
         try:
             conn.ping(reconnect=True, attempts=1, delay=0)
+            diag["ping_ok"] = True
         except Exception as e:
-            log.warning("admin_users: ping failed, will retry once: %s", e)
-        return get_egelloc_staff(conn), None
+            log.warning("admin_users: ping failed: %s", e)
+            diag["ping_ok"] = False
+            diag["error"] = f"ping: {type(e).__name__}: {e}"
+        staff = get_egelloc_staff(conn)
+        diag["query_ok"] = True
+        return staff, diag
     except Exception as e:
         log.warning("admin_users: get_egelloc_staff failed: %s", e)
-        return [], f"{type(e).__name__}: {e}"
+        diag["query_ok"] = False
+        diag["error"] = f"{type(e).__name__}: {e}"
+        return [], diag
     finally:
         try:
             conn.close()
@@ -623,7 +645,8 @@ def _fetch_staff_safe():
 @admin_required
 def admin_users():
     """Get all egelloC staff with their current permissions."""
-    staff, staff_error = _fetch_staff_safe()
+    staff, staff_diag = _fetch_staff_safe()
+    staff_error = staff_diag.get("error") if staff_diag else None
 
     all_perms = get_all_permissions()
     apps = get_all_apps()
@@ -696,11 +719,14 @@ def admin_users():
             u["roles"] = role_override
             u["roles_edited"] = True
 
-    payload = {"users": users, "apps": apps}
+    nest_count = sum(1 for u in users if u.get("source") == "nest")
+    payload = {"users": users, "apps": apps, "nest_count": nest_count}
     if staff_error:
         # Surface MySQL-side failures so the UI shows a banner instead of
         # silently sitting on "Loading...". Custom users still render.
         payload["staff_error"] = staff_error
+    if staff_diag:
+        payload["staff_diag"] = staff_diag
     return jsonify(payload)
 
 
