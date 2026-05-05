@@ -2447,14 +2447,14 @@ function _renderSecretsPanel(slug) {
     ? '<div style="color:var(--text-muted);font-size:12px;padding:6px 0;">No secrets yet. Add one below.</div>'
     : keys.map(function(k) {
         var btnStyle = 'font-size:11px;padding:3px 8px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;';
-        return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border);">' +
+        return '<div data-secret-row="' + escHtml(k.key) + '" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border);">' +
           '<code style="flex:0 0 240px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escHtml(k.key) + '</code>' +
-          '<code style="flex:1;font-size:12px;color:var(--text-muted);word-break:break-all;min-width:0;' + (revealed ? 'cursor:pointer;' : '') + '" ' +
+          '<code data-role="value" style="flex:1;font-size:12px;color:var(--text-muted);word-break:break-all;min-width:0;' + (revealed ? 'cursor:pointer;' : '') + '" ' +
             (revealed ? 'onclick="copyToClipboard(this, ' + JSON.stringify(k.value).replace(/"/g, '&quot;') + ')" title="Click to copy"' : '') +
           '>' + escHtml(k.value || "(empty)") + '</code>' +
-          '<button onclick="copySecret(this, \'' + escHtml(slug) + '\', \'' + escHtml(k.key) + '\')" title="Copy value to clipboard (audit-logged)" style="' + btnStyle + '">Copy</button>' +
-          '<button onclick="editSecret(\'' + escHtml(slug) + '\', \'' + escHtml(k.key) + '\')" style="' + btnStyle + '">Edit</button>' +
-          '<button onclick="deleteSecret(\'' + escHtml(slug) + '\', \'' + escHtml(k.key) + '\')" class="key-remove">Delete</button>' +
+          '<button type="button" onclick="copySecret(this, \'' + escHtml(slug) + '\', \'' + escHtml(k.key) + '\')" title="Copy value to clipboard (audit-logged)" style="' + btnStyle + '">Copy</button>' +
+          '<button type="button" onclick="editSecret(\'' + escHtml(slug) + '\', \'' + escHtml(k.key) + '\')" style="' + btnStyle + '">Edit</button>' +
+          '<button type="button" onclick="deleteSecret(\'' + escHtml(slug) + '\', \'' + escHtml(k.key) + '\')" class="key-remove">Delete</button>' +
         '</div>';
       }).join("");
   var toolbar =
@@ -2494,18 +2494,123 @@ function addSecret(slug) {
 }
 
 function editSecret(slug, key) {
+  var panel = document.getElementById("secrets-panel-" + slug);
+  if (!panel) return;
+  var rows = panel.querySelectorAll('[data-secret-row]');
+  var row = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].getAttribute("data-secret-row") === key) { row = rows[i]; break; }
+  }
+  if (!row || row.dataset.editing === "1") return;
+  var valueCell = row.querySelector('[data-role="value"]');
+  if (!valueCell) return;
+
+  // Stash the original cell so Cancel can put it back unchanged. Saving
+  // also restores the cell, then patches the value in place from the
+  // local state — no full panel re-render, no outer list reload.
+  var originalCellHtml = valueCell.outerHTML;
+  row.dataset.editing = "1";
+
   var s = _secretsState[slug] || {};
   var current = "";
   if (s.revealed) {
     var match = (s.keys || []).find(function(k) { return k.key === key; });
-    current = match ? match.value : "";
+    current = match ? (match.value || "") : "";
   }
-  var value = prompt("New value for " + key + ":\n(Reveal values first to see the current one.)", current);
-  if (value === null) return;
-  _postSecret(slug, key, value);
+
+  // Replace the value cell with an inline editor. The hint nudges the
+  // user to reveal first if they want to see/extend the existing value
+  // rather than overwrite blind.
+  var editor = document.createElement("div");
+  editor.setAttribute("data-role", "value");
+  editor.style.cssText = "flex:1;display:flex;flex-direction:column;gap:6px;min-width:0;";
+  editor.innerHTML =
+    '<input type="text" class="_secret-edit-input" ' +
+      'style="width:100%;font-family:inherit;font-size:12px;padding:5px 8px;background:var(--bg);color:var(--text);' +
+      'border:1px solid var(--accent,#4f8ff7);border-radius:4px;outline:none;box-sizing:border-box;">' +
+    (s.revealed ? "" : '<div style="font-size:11px;color:var(--text-muted);">Current value is hidden — Save will overwrite it.</div>') +
+    '<div style="display:flex;gap:6px;">' +
+      '<button type="button" class="_secret-edit-save" ' +
+        'style="font-size:11px;padding:4px 12px;background:var(--accent,#4f8ff7);color:white;border:0;border-radius:4px;cursor:pointer;">Save</button>' +
+      '<button type="button" class="_secret-edit-cancel" ' +
+        'style="font-size:11px;padding:4px 12px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;">Cancel</button>' +
+    '</div>';
+  valueCell.replaceWith(editor);
+
+  var input = editor.querySelector("._secret-edit-input");
+  input.value = current;
+  input.focus();
+  input.select();
+
+  function restoreCell() {
+    var tmp = document.createElement("div");
+    tmp.innerHTML = originalCellHtml;
+    var restored = tmp.firstChild;
+    editor.replaceWith(restored);
+    delete row.dataset.editing;
+  }
+  function commit() {
+    var newValue = input.value;
+    var saveBtn = editor.querySelector("._secret-edit-save");
+    var cancelBtn = editor.querySelector("._secret-edit-cancel");
+    saveBtn.disabled = true;
+    cancelBtn.disabled = true;
+    saveBtn.textContent = "Saving…";
+    fetch("/admin/api/secrets/" + encodeURIComponent(slug), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: key, value: newValue }),
+    })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+      .then(function(res) {
+        if (!res.ok) {
+          saveBtn.disabled = false;
+          cancelBtn.disabled = false;
+          saveBtn.textContent = "Save";
+          alert(res.d.error || "Failed");
+          return;
+        }
+        // Patch local state so a subsequent edit shows the new value
+        // (when revealed). The outer key_count is unchanged on edit, so
+        // no need to reload the parent list.
+        var st = _secretsState[slug] || {};
+        if (st.revealed && Array.isArray(st.keys)) {
+          var hit = st.keys.find(function(k) { return k.key === key; });
+          if (hit) hit.value = newValue;
+        }
+        restoreCell();
+        // Update the now-restored cell's displayed value if values are
+        // currently revealed; otherwise leave the masked placeholder.
+        var freshRow = null;
+        var allRows = panel.querySelectorAll('[data-secret-row]');
+        for (var i = 0; i < allRows.length; i++) {
+          if (allRows[i].getAttribute("data-secret-row") === key) { freshRow = allRows[i]; break; }
+        }
+        var freshCell = freshRow && freshRow.querySelector('[data-role="value"]');
+        if (freshCell && st.revealed) {
+          freshCell.textContent = newValue || "(empty)";
+          // Re-bind click-to-copy with the new value
+          freshCell.setAttribute("onclick", "copyToClipboard(this, " + JSON.stringify(newValue).replace(/"/g, '&quot;') + ")");
+        }
+      })
+      .catch(function(e) {
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+        saveBtn.textContent = "Save";
+        alert("Network error: " + String(e));
+      });
+  }
+
+  editor.querySelector("._secret-edit-save").addEventListener("click", commit);
+  editor.querySelector("._secret-edit-cancel").addEventListener("click", restoreCell);
+  input.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    else if (e.key === "Escape") { e.preventDefault(); restoreCell(); }
+  });
 }
 
 function _postSecret(slug, key, value) {
+  // Used by the Add flow only — edits go through the inline editor.
   fetch("/admin/api/secrets/" + encodeURIComponent(slug), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
