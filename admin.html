@@ -2785,7 +2785,11 @@ async function loadDBUsers() {
     const users = usersData.users || [];
 
     html += '<div class="infra-card">';
-    html += '<h3>' + db.label + ' <span class="count">(' + users.length + ' read-only)</span>';
+    var panelCount = users.filter(function(u) { return !u.external && !u.missing_on_db; }).length;
+    var countLabel = (users.length === panelCount)
+      ? users.length + ' read-only'
+      : users.length + ' total · ' + panelCount + ' panel-managed';
+    html += '<h3>' + db.label + ' <span class="count">(' + countLabel + ')</span>';
     if (db.is_replica) {
       html += ' <span style="display:inline-block;margin-left:6px;padding:1px 8px;border-radius:10px;background:rgba(99,102,241,0.18);color:#a5b4fc;font-size:10px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;vertical-align:middle;">replica · read-only</span>';
     }
@@ -2809,9 +2813,15 @@ async function loadDBUsers() {
     } else {
       html += '<table class="db-table"><thead><tr><th>User</th><th>Created By</th><th>Created</th><th style="width:80px;"></th></tr></thead><tbody>';
       for (const u of users) {
-        html += '<tr><td><strong>' + u.username + '</strong></td>';
-        html += '<td style="font-size:12px;color:var(--text-muted);">' + (u.created_by || '') + '</td>';
-        html += '<td style="font-size:12px;color:var(--text-muted);">' + (u.created_at || '') + '</td>';
+        var externalBadge = u.external
+          ? ' <span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:rgba(148,163,184,0.18);color:#cbd5e1;font-size:10px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;" title="Created outside this panel (DO console, direct SQL, etc.)">external</span>'
+          : '';
+        var driftBadge = u.missing_on_db
+          ? ' <span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;background:rgba(244,114,182,0.18);color:#fbcfe8;font-size:10px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;" title="Tracked here but missing on the database — likely dropped outside the panel">drift</span>'
+          : '';
+        html += '<tr><td><strong>' + escHtml(u.username) + '</strong>' + externalBadge + driftBadge + '</td>';
+        html += '<td style="font-size:12px;color:var(--text-muted);">' + escHtml(u.created_by || (u.external ? '—' : '')) + '</td>';
+        html += '<td style="font-size:12px;color:var(--text-muted);">' + escHtml(u.created_at || '') + '</td>';
         html += '<td style="text-align:right;"><button class="key-remove" onclick="dropDbUser(\'' + u.username + "','" + db.slug + '\')">Revoke</button></td></tr>';
       }
       html += '</tbody></table>';

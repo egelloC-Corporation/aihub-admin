@@ -2604,6 +2604,61 @@ def save_readonly_users(users):
         json.dump(users, f, indent=2)
 
 
+# System / managed roles we never want to surface in the operator-facing
+# user list — they're either DO-managed (doadmin, _dodb), engine built-ins
+# (pg_*, mysql.*), or replication plumbing.
+_PG_SYSTEM_ROLES = {"doadmin", "_dodb", "postgres", "rdsadmin", "replication", "repmgr"}
+_MYSQL_SYSTEM_USERS = {"doadmin", "mysql.sys", "mysql.session", "mysql.infoschema",
+                       "root", "mariadb.sys", "rdsrepladmin"}
+
+
+def list_db_users(slug):
+    """Return every login-capable user that exists on the actual database
+    (not just the ones this panel tracks). Panel-tracked metadata is merged
+    in by the caller. Returns [] if we can't connect — the panel still
+    renders, just without external rows.
+    """
+    cfg = MANAGED_DATABASES.get(slug, {})
+    if not cfg or not cfg.get("admin_password"):
+        return []
+    engine = cfg.get("engine", "mysql")
+    try:
+        if engine == "pg":
+            import psycopg2
+            conn = psycopg2.connect(
+                host=cfg["host"], port=cfg["port"], dbname=cfg["database"],
+                user=cfg["admin_user"], password=cfg["admin_password"],
+                sslmode="require", connect_timeout=5,
+            )
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT rolname FROM pg_roles "
+                    "WHERE rolcanlogin = true AND rolname NOT LIKE 'pg\\_%' ESCAPE '\\' "
+                    "ORDER BY rolname"
+                )
+                names = [r[0] for r in cursor.fetchall()]
+            finally:
+                conn.close()
+            return [n for n in names if n not in _PG_SYSTEM_ROLES]
+        else:
+            conn = mysql.connector.connect(
+                host=cfg["host"], port=cfg["port"], database=cfg["database"],
+                user=cfg["admin_user"], password=cfg["admin_password"],
+                connection_timeout=5,
+            )
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT DISTINCT user FROM mysql.user ORDER BY user")
+                names = [r[0] for r in cursor.fetchall()]
+            finally:
+                conn.close()
+            return [n for n in names if n not in _MYSQL_SYSTEM_USERS]
+    except Exception as e:
+        log.warning("list_db_users(%s) failed: %s", slug, e)
+        return []
+
+
 @app.route("/admin/api/network-access")
 @admin_required
 @feature_required("infra_access")
@@ -2894,13 +2949,43 @@ def admin_databases():
 @admin_required
 @feature_required("infra_access")
 def admin_db_users():
-    """List read-only database users created through this panel."""
+    """List every login-capable user on the database, merged with the
+    panel-tracked metadata (created_by / created_at) for users we know about.
+    Users created outside the panel (DO console, direct SQL) appear with
+    `external: true` and an empty creator field — the panel still tracks
+    privileges enough to revoke them.
+    """
     db_slug = request.args.get("db", "nest")
-    all_users = load_readonly_users()
-    users = [u for u in all_users if u.get("db", "nest") == db_slug]
     cfg = MANAGED_DATABASES.get(db_slug, {})
+
+    panel_index = {u["username"]: u
+                   for u in load_readonly_users()
+                   if u.get("db", "nest") == db_slug}
+    live_names = list_db_users(db_slug)
+
+    merged = []
+    seen = set()
+    for name in live_names:
+        seen.add(name)
+        rec = panel_index.get(name)
+        if rec:
+            merged.append({**rec, "external": False})
+        else:
+            merged.append({
+                "username": name,
+                "db": db_slug,
+                "created_by": "",
+                "created_at": "",
+                "external": True,
+            })
+    # Panel-tracked users not visible on the DB (drift — likely dropped
+    # outside the panel). Surface them so revoke/cleanup is still possible.
+    for name, rec in panel_index.items():
+        if name not in seen:
+            merged.append({**rec, "external": False, "missing_on_db": True})
+
     return jsonify({
-        "users": users,
+        "users": merged,
         "host": cfg.get("host", ""),
         "port": cfg.get("port", 25060),
         "database": cfg.get("database", ""),
