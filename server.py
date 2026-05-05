@@ -2604,59 +2604,50 @@ def save_readonly_users(users):
         json.dump(users, f, indent=2)
 
 
-# System / managed roles we never want to surface in the operator-facing
-# user list — they're either DO-managed (doadmin, _dodb), engine built-ins
-# (pg_*, mysql.*), or replication plumbing.
-_PG_SYSTEM_ROLES = {"doadmin", "_dodb", "postgres", "rdsadmin", "replication", "repmgr"}
-_MYSQL_SYSTEM_USERS = {"doadmin", "mysql.sys", "mysql.session", "mysql.infoschema",
-                       "root", "mariadb.sys", "rdsrepladmin"}
+# System / managed accounts we never want to surface in the operator-facing
+# user list — DO-managed plumbing, engine built-ins, replication, etc.
+_DB_SYSTEM_USERS = {
+    "doadmin", "_dodb", "postgres", "rdsadmin", "replication", "repmgr",
+    "mysql.sys", "mysql.session", "mysql.infoschema", "mariadb.sys",
+    "rdsrepladmin", "root",
+}
 
 
 def list_db_users(slug):
-    """Return every login-capable user that exists on the actual database
-    (not just the ones this panel tracks). Panel-tracked metadata is merged
-    in by the caller. Returns [] if we can't connect — the panel still
-    renders, just without external rows.
+    """Return every user the database cluster says exists.
+
+    Uses the DigitalOcean API (GET /v2/databases/{cluster}/users) which works
+    for both managed Postgres and MySQL — querying mysql.user directly fails
+    on managed MySQL because doadmin doesn't have SELECT on it.
+
+    Returns:
+      list[str] on success (possibly empty if the cluster genuinely has no
+        non-system users)
+      None when we couldn't determine the live state (no DO token, API
+        error, network issue). Callers should NOT treat None as "every
+        panel-tracked user is drift" — they should fall back to rendering
+        panel data only.
     """
-    cfg = MANAGED_DATABASES.get(slug, {})
-    if not cfg or not cfg.get("admin_password"):
-        return []
-    engine = cfg.get("engine", "mysql")
+    do_cfg = DO_CONFIGS.get(slug, {})
+    token = do_cfg.get("token")
+    cluster_id = do_cfg.get("cluster_id")
+    if not token or not cluster_id:
+        return None
     try:
-        if engine == "pg":
-            import psycopg2
-            conn = psycopg2.connect(
-                host=cfg["host"], port=cfg["port"], dbname=cfg["database"],
-                user=cfg["admin_user"], password=cfg["admin_password"],
-                sslmode="require", connect_timeout=5,
-            )
-            try:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT rolname FROM pg_roles "
-                    "WHERE rolcanlogin = true AND rolname NOT LIKE 'pg\\_%' ESCAPE '\\' "
-                    "ORDER BY rolname"
-                )
-                names = [r[0] for r in cursor.fetchall()]
-            finally:
-                conn.close()
-            return [n for n in names if n not in _PG_SYSTEM_ROLES]
-        else:
-            conn = mysql.connector.connect(
-                host=cfg["host"], port=cfg["port"], database=cfg["database"],
-                user=cfg["admin_user"], password=cfg["admin_password"],
-                connection_timeout=5,
-            )
-            try:
-                cursor = conn.cursor()
-                cursor.execute("SELECT DISTINCT user FROM mysql.user ORDER BY user")
-                names = [r[0] for r in cursor.fetchall()]
-            finally:
-                conn.close()
-            return [n for n in names if n not in _MYSQL_SYSTEM_USERS]
+        r = http_requests.get(
+            f"https://api.digitalocean.com/v2/databases/{cluster_id}/users",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            log.warning("list_db_users(%s): DO API %s %s", slug, r.status_code, r.text[:200])
+            return None
+        users = r.json().get("users", []) or []
+        names = [u.get("name", "") for u in users if u.get("name")]
+        return [n for n in names if n not in _DB_SYSTEM_USERS]
     except Exception as e:
         log.warning("list_db_users(%s) failed: %s", slug, e)
-        return []
+        return None
 
 
 @app.route("/admin/api/network-access")
@@ -2962,10 +2953,11 @@ def admin_db_users():
                    for u in load_readonly_users()
                    if u.get("db", "nest") == db_slug}
     live_names = list_db_users(db_slug)
+    live_known = live_names is not None
 
     merged = []
     seen = set()
-    for name in live_names:
+    for name in (live_names or []):
         seen.add(name)
         rec = panel_index.get(name)
         if rec:
@@ -2978,17 +2970,22 @@ def admin_db_users():
                 "created_at": "",
                 "external": True,
             })
-    # Panel-tracked users not visible on the DB (drift — likely dropped
-    # outside the panel). Surface them so revoke/cleanup is still possible.
+    # Surface any panel-tracked users not listed by the live DB. Only call
+    # them "drift" when we actually got a definitive answer from the live
+    # DB — otherwise (token missing, API error) just render them normally.
     for name, rec in panel_index.items():
         if name not in seen:
-            merged.append({**rec, "external": False, "missing_on_db": True})
+            entry = {**rec, "external": False}
+            if live_known:
+                entry["missing_on_db"] = True
+            merged.append(entry)
 
     return jsonify({
         "users": merged,
         "host": cfg.get("host", ""),
         "port": cfg.get("port", 25060),
         "database": cfg.get("database", ""),
+        "live_known": live_known,
     })
 
 
