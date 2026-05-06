@@ -2464,11 +2464,36 @@ function _renderSecretsPanel(slug) {
         (revealed ? 'Hide values' : 'Show values') +
       '</button>' +
       '<div style="display:flex;gap:8px;">' +
-        '<button onclick="openBulkImport(\'' + escHtml(slug) + '\')" style="font-size:12px;padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;">Import .env</button>' +
-        '<button onclick="addSecret(\'' + escHtml(slug) + '\')" style="font-size:12px;padding:4px 10px;background:var(--accent,#4f8ff7);color:white;border:0;border-radius:5px;cursor:pointer;">+ Add secret</button>' +
+        '<button type="button" onclick="openBulkImport(\'' + escHtml(slug) + '\')" style="font-size:12px;padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;">Import .env</button>' +
+        '<button type="button" onclick="addSecret(\'' + escHtml(slug) + '\')" style="font-size:12px;padding:4px 10px;background:var(--accent,#4f8ff7);color:white;border:0;border-radius:5px;cursor:pointer;">+ Add secret</button>' +
       '</div>' +
     '</div>';
-  return toolbar + rows;
+  // Inline add-secret form. Hidden by default; addSecret() reveals it.
+  // Lives directly under the toolbar so it surfaces right by the
+  // "+ Add secret" button instead of as a detached browser prompt.
+  var addForm =
+    '<div data-role="add-form" style="display:none;margin-bottom:10px;padding:10px 12px;background:var(--bg);border:1px solid var(--accent,#4f8ff7);border-radius:6px;">' +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">' +
+        '<div style="flex:0 0 240px;display:flex;flex-direction:column;gap:3px;min-width:180px;">' +
+          '<label style="font-size:11px;color:var(--text-muted);">Secret name</label>' +
+          '<input data-role="add-key" type="text" placeholder="OPENAI_API_KEY" autocomplete="off" ' +
+            'style="font-family:inherit;font-size:12px;padding:6px 8px;background:var(--bg-secondary,var(--bg));color:var(--text);border:1px solid var(--border);border-radius:4px;outline:none;text-transform:uppercase;">' +
+        '</div>' +
+        '<div style="flex:1;display:flex;flex-direction:column;gap:3px;min-width:200px;">' +
+          '<label style="font-size:11px;color:var(--text-muted);">Value</label>' +
+          '<input data-role="add-value" type="text" placeholder="Enter value" autocomplete="off" ' +
+            'style="font-family:inherit;font-size:12px;padding:6px 8px;background:var(--bg-secondary,var(--bg));color:var(--text);border:1px solid var(--border);border-radius:4px;outline:none;">' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;">' +
+          '<button type="button" data-role="add-save" ' +
+            'style="font-size:11px;padding:6px 14px;background:var(--accent,#4f8ff7);color:white;border:0;border-radius:4px;cursor:pointer;">Save</button>' +
+          '<button type="button" data-role="add-cancel" ' +
+            'style="font-size:11px;padding:6px 14px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer;">Cancel</button>' +
+        '</div>' +
+      '</div>' +
+      '<div data-role="add-error" style="display:none;margin-top:6px;font-size:11px;color:#e06b6b;"></div>' +
+    '</div>';
+  return toolbar + addForm + rows;
 }
 
 function revealSecretValues(slug) {
@@ -2481,16 +2506,88 @@ function hideSecretValues(slug) {
 }
 
 function addSecret(slug) {
-  var key = prompt("Secret key name (e.g. OPENAI_API_KEY):");
-  if (!key) return;
-  key = key.trim().toUpperCase();
-  if (!/^[A-Z_][A-Z0-9_]{0,63}$/.test(key)) {
-    alert("Invalid key. Use uppercase letters, digits, underscores; must start with a letter or underscore.");
-    return;
+  var panel = document.getElementById("secrets-panel-" + slug);
+  if (!panel) return;
+  var form = panel.querySelector('[data-role="add-form"]');
+  if (!form) return;
+  var keyInput = form.querySelector('[data-role="add-key"]');
+  var valueInput = form.querySelector('[data-role="add-value"]');
+  var saveBtn = form.querySelector('[data-role="add-save"]');
+  var cancelBtn = form.querySelector('[data-role="add-cancel"]');
+  var errBox = form.querySelector('[data-role="add-error"]');
+
+  // Reset on every open — pristine fields, no stale error.
+  keyInput.value = "";
+  valueInput.value = "";
+  errBox.style.display = "none";
+  errBox.textContent = "";
+  saveBtn.disabled = false;
+  saveBtn.textContent = "Save";
+  form.style.display = "block";
+  keyInput.focus();
+
+  // Bind handlers once per form instance. The panel re-renders after
+  // a successful save, so a new form (and a fresh wired flag) appears.
+  if (form.dataset.wired === "1") return;
+  form.dataset.wired = "1";
+
+  function showError(msg) {
+    errBox.textContent = msg;
+    errBox.style.display = "block";
   }
-  var value = prompt("Value for " + key + ":");
-  if (value === null) return;
-  _postSecret(slug, key, value);
+  function close() {
+    form.style.display = "none";
+  }
+  function submit() {
+    var key = keyInput.value.trim().toUpperCase();
+    if (!key) { showError("Secret name required."); keyInput.focus(); return; }
+    if (!/^[A-Z_][A-Z0-9_]{0,63}$/.test(key)) {
+      showError("Invalid name. Uppercase letters, digits, underscores; must start with a letter or underscore.");
+      keyInput.focus();
+      return;
+    }
+    var value = valueInput.value;
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving…";
+    fetch("/admin/api/secrets/" + encodeURIComponent(slug), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: key, value: value }),
+    })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+      .then(function(res) {
+        if (!res.ok) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = "Save";
+          showError(res.d.error || "Failed");
+          return;
+        }
+        close();
+        var s = _secretsState[slug] || {};
+        _fetchSecretsForApp(slug, !!s.revealed);
+        // Adds change key_count, so refresh outer list — but preserve
+        // expanded state so the user stays on this app's panel.
+        var saved = JSON.parse(JSON.stringify(_secretsState));
+        loadSecrets();
+        setTimeout(function() { _secretsState = saved; }, 50);
+      })
+      .catch(function(e) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save";
+        showError("Network error: " + String(e));
+      });
+  }
+
+  saveBtn.addEventListener("click", submit);
+  cancelBtn.addEventListener("click", close);
+  keyInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") { e.preventDefault(); valueInput.focus(); }
+    else if (e.key === "Escape") { e.preventDefault(); close(); }
+  });
+  valueInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") { e.preventDefault(); submit(); }
+    else if (e.key === "Escape") { e.preventDefault(); close(); }
+  });
 }
 
 function editSecret(slug, key) {
