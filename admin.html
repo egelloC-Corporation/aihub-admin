@@ -2570,28 +2570,13 @@ function editSecret(slug, key) {
           alert(res.d.error || "Failed");
           return;
         }
-        // Patch local state so a subsequent edit shows the new value
-        // (when revealed). The outer key_count is unchanged on edit, so
-        // no need to reload the parent list.
+        // Re-fetch the panel for this one app — guarantees the new
+        // value is rendered (and re-masked correctly if values were
+        // hidden). Cheaper than the old loadSecrets() outer reload,
+        // which was what made edits feel like a page refresh.
         var st = _secretsState[slug] || {};
-        if (st.revealed && Array.isArray(st.keys)) {
-          var hit = st.keys.find(function(k) { return k.key === key; });
-          if (hit) hit.value = newValue;
-        }
-        restoreCell();
-        // Update the now-restored cell's displayed value if values are
-        // currently revealed; otherwise leave the masked placeholder.
-        var freshRow = null;
-        var allRows = panel.querySelectorAll('[data-secret-row]');
-        for (var i = 0; i < allRows.length; i++) {
-          if (allRows[i].getAttribute("data-secret-row") === key) { freshRow = allRows[i]; break; }
-        }
-        var freshCell = freshRow && freshRow.querySelector('[data-role="value"]');
-        if (freshCell && st.revealed) {
-          freshCell.textContent = newValue || "(empty)";
-          // Re-bind click-to-copy with the new value
-          freshCell.setAttribute("onclick", "copyToClipboard(this, " + JSON.stringify(newValue).replace(/"/g, '&quot;') + ")");
-        }
+        delete row.dataset.editing;
+        _fetchSecretsForApp(slug, !!st.revealed);
       })
       .catch(function(e) {
         saveBtn.disabled = false;
