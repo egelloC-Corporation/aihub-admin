@@ -519,6 +519,11 @@ def launcher_apps():
         """SELECT s.slug, s.name, s.description, s.icon, s.port
            FROM app_submissions s
            WHERE s.status = 'live'
+             -- Hide background services (webhook ingesters, headless APIs).
+             -- They're deployed and registered but have no user-facing UI,
+             -- so a launcher card or app-drawer entry pointing at them is
+             -- misleading. Toggled per-row in app_submissions.
+             AND COALESCE(s.is_internal, 0) = 0
            ORDER BY s.name"""
     ).fetchall()
     conn.close()
@@ -1208,6 +1213,7 @@ def api_edit_app():
         streamlit_port=body.get("streamlit_port"),
         repo_url=body.get("repo_url"),
         env_keys=body.get("env_keys"),
+        is_internal=body.get("is_internal"),
     )
     if "error" in result:
         return jsonify(result), 400
@@ -1216,7 +1222,7 @@ def api_edit_app():
               user_name=session["user"].get("name"),
               app_slug=result.get("slug") or str(submission_id),
               metadata={"submission_id": submission_id,
-                        "fields": [k for k in ("slug","name","description","icon","port","streamlit_port","repo_url","env_keys") if body.get(k) is not None]})
+                        "fields": [k for k in ("slug","name","description","icon","port","streamlit_port","repo_url","env_keys","is_internal") if body.get(k) is not None]})
     return jsonify(result)
 
 
