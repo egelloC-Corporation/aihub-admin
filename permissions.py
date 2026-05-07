@@ -120,12 +120,22 @@ def init_db():
             submitted_by TEXT NOT NULL,
             reviewed_by TEXT,
             submitted_at TEXT DEFAULT (datetime('now')),
-            reviewed_at TEXT
+            reviewed_at TEXT,
+            is_internal INTEGER NOT NULL DEFAULT 0
         );
     """)
 
-    # Migrate: add columns if missing
-    for col in ["icon TEXT DEFAULT ''", "repo_subdir TEXT DEFAULT ''", "streamlit_port INTEGER"]:
+    # Migrate: add columns if missing.
+    # is_internal=1 marks background services (e.g. webhook ingesters, headless
+    # APIs) that are deployed via the platform but should NOT appear in the
+    # launcher cards or the per-user Permissions matrix — there's nothing to
+    # grant access to, no UI to land on.
+    for col in [
+        "icon TEXT DEFAULT ''",
+        "repo_subdir TEXT DEFAULT ''",
+        "streamlit_port INTEGER",
+        "is_internal INTEGER NOT NULL DEFAULT 0",
+    ]:
         try:
             conn.execute(f"ALTER TABLE app_submissions ADD COLUMN {col}")
         except sqlite3.OperationalError:
@@ -146,7 +156,12 @@ def init_db():
             r["slug"]: (r["name"], r["description"] or "")
             for r in conn.execute(
                 "SELECT slug, name, description FROM app_submissions "
-                "WHERE status IN ('live', 'approved')"
+                "WHERE status IN ('live', 'approved') "
+                # Background services (is_internal=1) are deployed but never
+                # surfaced as user-permission targets — they have no UI for
+                # users to land on. Excluded here so they don't show up as
+                # columns in the Permissions matrix on next reconciliation.
+                "AND COALESCE(is_internal, 0) = 0"
             ).fetchall()
         }
     except sqlite3.OperationalError:
@@ -405,11 +420,16 @@ def approve_submission(submission_id, reviewed_by):
         "UPDATE app_submissions SET status = 'approved', reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?",
         (reviewed_by, submission_id),
     )
-    # Register the app
-    conn.execute(
-        "INSERT OR REPLACE INTO app_registry (slug, name, description) VALUES (?, ?, ?)",
-        (row["slug"], row["name"], row["description"]),
-    )
+    # Register the app — but skip if it's an internal/background service.
+    # init_db's reconciliation enforces the same rule on every boot; this
+    # check just avoids momentarily exposing the slug as a permission target
+    # between approval and the next reconciliation.
+    is_internal = bool(row["is_internal"]) if "is_internal" in row.keys() else False
+    if not is_internal:
+        conn.execute(
+            "INSERT OR REPLACE INTO app_registry (slug, name, description) VALUES (?, ?, ?)",
+            (row["slug"], row["name"], row["description"]),
+        )
     conn.commit()
     conn.close()
     return {"status": "approved", "slug": row["slug"], "port": row["port"], "repo_url": row["repo_url"]}
@@ -508,8 +528,15 @@ def delete_submission(submission_id):
     }
 
 
-def edit_submission(submission_id, slug=None, name=None, description=None, icon=None, port=None, streamlit_port=None, repo_url=None, env_keys=None):
-    """Edit fields on an existing submission. Supports slug changes."""
+def edit_submission(submission_id, slug=None, name=None, description=None, icon=None, port=None, streamlit_port=None, repo_url=None, env_keys=None, is_internal=None):
+    """Edit fields on an existing submission. Supports slug changes.
+
+    `is_internal` toggles whether the app is treated as a background service.
+    Setting it to 1 removes the row from app_registry (so it disappears from
+    the Permissions matrix and the launcher); 0 puts it back. The init_db
+    reconciliation also enforces this on every boot, so the in-place change
+    here is just to make the UI feel responsive between deploys.
+    """
     conn = get_db()
     row = conn.execute("SELECT * FROM app_submissions WHERE id = ?", (submission_id,)).fetchone()
     if not row:
@@ -548,6 +575,9 @@ def edit_submission(submission_id, slug=None, name=None, description=None, icon=
         updates["repo_url"] = repo_url
     if env_keys is not None:
         updates["env_keys"] = env_keys
+    if is_internal is not None:
+        # Coerce to 0/1 — accept truthy/falsy from the API.
+        updates["is_internal"] = 1 if is_internal else 0
 
     if not updates:
         conn.close()
@@ -567,6 +597,18 @@ def edit_submission(submission_id, slug=None, name=None, description=None, icon=
             "UPDATE app_registry SET name = COALESCE(?, name), description = COALESCE(?, description) WHERE slug = ?",
             (updates.get("name"), updates.get("description"), target_slug),
         )
+    # Reflect is_internal toggle in app_registry immediately so the UI feels
+    # responsive — otherwise the change wouldn't show up until init_db's next
+    # reconciliation (i.e. next platform boot).
+    if "is_internal" in updates:
+        target_slug = new_slug or old_slug
+        if updates["is_internal"]:
+            conn.execute("DELETE FROM app_registry WHERE slug = ?", (target_slug,))
+        else:
+            conn.execute(
+                "INSERT OR REPLACE INTO app_registry (slug, name, description) VALUES (?, ?, ?)",
+                (target_slug, updates.get("name") or row["name"], updates.get("description") or (row["description"] or "")),
+            )
 
     conn.commit()
     conn.close()
