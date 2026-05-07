@@ -505,7 +505,14 @@ def launcher():
 @app.route("/launcher/api/apps")
 @login_required
 def launcher_apps():
-    """Return deployed apps for the launcher. Any authenticated user can call this."""
+    """Return deployed apps for the launcher. Any authenticated user can call this.
+
+    Sends `Cache-Control: no-cache` so admin edits to an app's name/description/
+    icon show up on the next page load instead of after the browser's heuristic
+    cache window expires. The launcher also reads this from hub-navbar.js (the
+    9-dot app drawer in the topbar of every aihub-* app), so the same staleness
+    affected both surfaces.
+    """
     from permissions import get_db
     conn = get_db()
     rows = conn.execute(
@@ -515,7 +522,9 @@ def launcher_apps():
            ORDER BY s.name"""
     ).fetchall()
     conn.close()
-    return jsonify({"apps": [dict(r) for r in rows]})
+    resp = jsonify({"apps": [dict(r) for r in rows]})
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.route("/knowledge", strict_slashes=False)
