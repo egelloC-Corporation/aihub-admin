@@ -613,7 +613,11 @@ def edit_submission(submission_id, slug=None, name=None, description=None, icon=
     conn.commit()
     conn.close()
 
-    result = {"status": "updated"}
+    # Always include the current slug so callers (e.g. /admin/api/apps/edit's
+    # log_event) can identify the row without falling back to the numeric
+    # submission id — that fallback was leaking ids like "16", "18", "19"
+    # into incubator_logs as if they were app slugs.
+    result = {"status": "updated", "slug": new_slug or old_slug}
     if new_slug:
         result["old_slug"] = old_slug
         result["new_slug"] = new_slug
