@@ -2631,18 +2631,46 @@ _DB_SYSTEM_USERS = {
 def list_db_users(slug):
     """Return every user the database cluster says exists.
 
-    Uses the DigitalOcean API (GET /v2/databases/{cluster}/users) which works
-    for both managed Postgres and MySQL — querying mysql.user directly fails
-    on managed MySQL because doadmin doesn't have SELECT on it.
+    For MySQL we query mysql.user directly — DO's user-list API only surfaces
+    accounts created via the DO API/console, so SQL-created users (which is
+    everything this panel creates) show up as "missing" and trip a false-
+    positive DRIFT badge. Verified on 2026-05-19: doadmin can SELECT from
+    mysql.user on the Nest primary.
+
+    For Postgres we still use the DO API path until pg_roles readability is
+    verified the same way — keep the two branches in sync if that changes.
 
     Returns:
       list[str] on success (possibly empty if the cluster genuinely has no
         non-system users)
-      None when we couldn't determine the live state (no DO token, API
-        error, network issue). Callers should NOT treat None as "every
-        panel-tracked user is drift" — they should fall back to rendering
-        panel data only.
+      None when we couldn't determine the live state (missing creds, network
+        error, etc.). Callers should NOT treat None as "every panel-tracked
+        user is drift" — they should fall back to rendering panel data only.
     """
+    cfg = MANAGED_DATABASES.get(slug, {})
+    engine = cfg.get("engine", "mysql")
+
+    if engine == "mysql":
+        if not cfg.get("admin_password"):
+            return None
+        try:
+            conn = mysql.connector.connect(
+                host=cfg["host"], port=cfg["port"], database=cfg["database"],
+                user=cfg["admin_user"], password=cfg["admin_password"],
+                connection_timeout=10,
+            )
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT DISTINCT user FROM mysql.user ORDER BY user")
+                names = [r[0] for r in cursor.fetchall()]
+            finally:
+                conn.close()
+            return [n for n in names if n not in _DB_SYSTEM_USERS]
+        except Exception as e:
+            log.warning("list_db_users(%s) mysql.user query failed: %s", slug, e)
+            return None
+
+    # Postgres — DO API path (unchanged from the 881c56e implementation).
     do_cfg = DO_CONFIGS.get(slug, {})
     token = do_cfg.get("token")
     cluster_id = do_cfg.get("cluster_id")
