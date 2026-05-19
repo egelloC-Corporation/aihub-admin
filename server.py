@@ -3099,6 +3099,7 @@ def admin_create_db_user():
             conn = mysql.connector.pooling.MySQLConnection(
                 host=cfg["host"], port=cfg["port"], database=cfg["database"],
                 user=cfg["admin_user"], password=cfg["admin_password"],
+                connection_timeout=10,
             )
             cursor = conn.cursor()
             cursor.execute("CREATE USER %s@'%%' IDENTIFIED BY %s", (username, password))
@@ -3201,6 +3202,7 @@ def admin_drop_db_user():
             conn = mysql.connector.pooling.MySQLConnection(
                 host=cfg["host"], port=cfg["port"], database=cfg["database"],
                 user=cfg["admin_user"], password=cfg["admin_password"],
+                connection_timeout=10,
             )
             cursor = conn.cursor()
             cursor.execute("DROP USER IF EXISTS %s@'%%'", (username,))

@@ -375,7 +375,9 @@
     .infra-card {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 20px 24px;
+      min-width: 0;
     }
+    .infra-card code { word-break: break-all; overflow-wrap: anywhere; }
     .infra-card.full-width { grid-column: 1 / -1; }
     .infra-card h3 {
       font-size: 15px; font-weight: 700; margin-bottom: 4px;
@@ -3289,12 +3291,24 @@ async function createDbUser(dbSlug) {
   const username = input.value.trim();
   if (!username) { showToast("Enter a username"); return; }
 
-  const resp = await fetch("/admin/api/db-users/create", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ username: username, db: dbSlug }),
-  });
-  const data = await resp.json();
+  let data;
+  try {
+    const resp = await fetch("/admin/api/db-users/create", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ username: username, db: dbSlug }),
+    });
+    // 504/HTML error pages aren't JSON — surface the status instead of dying
+    // on a silent SyntaxError in await resp.json()
+    if (!resp.ok && resp.headers.get("content-type")?.indexOf("application/json") === -1) {
+      showToast("Create failed: HTTP " + resp.status + " (server unreachable?)");
+      return;
+    }
+    data = await resp.json();
+  } catch (e) {
+    showToast("Create failed: " + (e.message || e));
+    return;
+  }
 
   if (data.error) { showToast("Error: " + data.error); return; }
 
@@ -3353,12 +3367,22 @@ async function dropDbUser(username, dbSlug) {
   );
   if (!confirmed) return;
 
-  const resp = await fetch("/admin/api/db-users/drop", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ username: username, db: dbSlug }),
-  });
-  const data = await resp.json();
+  let data;
+  try {
+    const resp = await fetch("/admin/api/db-users/drop", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ username: username, db: dbSlug }),
+    });
+    if (!resp.ok && resp.headers.get("content-type")?.indexOf("application/json") === -1) {
+      showToast("Revoke failed: HTTP " + resp.status + " (server unreachable?)");
+      return;
+    }
+    data = await resp.json();
+  } catch (e) {
+    showToast("Revoke failed: " + (e.message || e));
+    return;
+  }
 
   if (data.error) { showToast("Error: " + data.error); return; }
 
