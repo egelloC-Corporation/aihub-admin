@@ -3409,9 +3409,17 @@ function renderLoadError(err) {
 
 function renderStaffErrorBanner(errText, diag, nestCount) {
   var existing = document.getElementById("staffErrorBanner");
+  // Playground / external-facing instances set FEATURES_STAFF_SYNC=false
+  // deliberately. That's the configured behavior, not a failure — so skip
+  // the banner entirely. Only surface "silent empty" when sync is actually
+  // *enabled* but returned 0 rows (real misconfiguration).
+  if (diag && diag.sync_enabled === false && !errText) {
+    if (existing) existing.remove();
+    return;
+  }
   // Hide banner only when Nest returned ≥1 staff and no error was reported.
-  // 0 staff with no error == silent failure mode (most likely
-  // FEATURES_STAFF_SYNC=false or wrong DB target), still worth surfacing.
+  // 0 staff with no error == silent failure mode (admin-panel pointed at
+  // the wrong DB, staff query returned 0 rows, etc), still worth surfacing.
   var silentEmpty = !errText && (nestCount === 0);
   if (!errText && !silentEmpty) { if (existing) existing.remove(); return; }
 

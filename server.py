@@ -644,7 +644,11 @@ def _fetch_staff_safe():
         )
         return [], diag
     if not diag["sync_enabled"]:
-        diag["error"] = "FEATURES_STAFF_SYNC is disabled on this instance"
+        # Intentional configuration on playground / external-facing
+        # instances — not an error. Leave diag["error"] unset so the
+        # frontend doesn't render the red "Nest MySQL unreachable" banner;
+        # diag["sync_enabled"]=False is the signal the UI uses to suppress
+        # the silent-empty banner too.
         return [], diag
     try:
         conn = read_pool.get_connection()
