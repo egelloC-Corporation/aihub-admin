@@ -382,10 +382,15 @@ def logged_out():
 def _brand_config():
     """Instance branding — lets the same codebase render as Incubator or Playground."""
     return {
-        "name":     os.environ.get("INSTANCE_NAME", "Incubator"),
-        "tagline":  os.environ.get("INSTANCE_TAGLINE", "Where tools hatch."),
-        "logo_url": os.environ.get("INSTANCE_LOGO_URL", "/assets/incubator-logo.png"),
-        "domain":   os.environ.get("APP_DOMAIN", "incubator.egelloc.com"),
+        "name":        os.environ.get("INSTANCE_NAME", "Incubator"),
+        "tagline":     os.environ.get("INSTANCE_TAGLINE", "Where tools hatch."),
+        "logo_url":    os.environ.get("INSTANCE_LOGO_URL", "/assets/incubator-logo.png"),
+        "domain":      os.environ.get("APP_DOMAIN", "incubator.egelloc.com"),
+        # Per-instance favicon set. Files live in the repo so they ship with
+        # the image; set INSTANCE_FAVICON_DIR=/favicon-playground on playground
+        # to pick the gold-cube set. hub-navbar.js reads this and injects the
+        # right <link rel="icon"> tags at boot.
+        "favicon_dir": os.environ.get("INSTANCE_FAVICON_DIR", "/favicon"),
     }
 
 

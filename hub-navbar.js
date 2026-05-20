@@ -1,22 +1,33 @@
 (function() {
   // ── Platform favicon ──
-  // Inject Incubator favicon links into every app that includes this navbar,
-  // so branding is consistent without per-app changes. Absolute URLs because
-  // apps may be served under path prefixes (/briefer/, /sales-kpi/, etc.).
+  // Inject the per-instance favicon set into every app that includes this
+  // navbar, so branding is consistent without per-app changes. Absolute URLs
+  // because apps may be served under path prefixes (/briefer/, /sales-kpi/).
   // Remove any pre-existing <link rel="icon"> so the platform icon wins.
+  //
+  // Per-instance directory: window.AIHUB_BRAND.favicon_dir (default "/favicon"
+  // for incubator; playground sets INSTANCE_FAVICON_DIR=/favicon-playground).
+  // Only the directory varies — file names stay {16,32,180,192,512}.png + svg
+  // so we don't have to keep two lists in sync.
   (function injectFavicon() {
     var origin = window.location.origin;
+    var dir = (window.AIHUB_BRAND && window.AIHUB_BRAND.favicon_dir) || "/favicon";
     document.querySelectorAll('link[rel~="icon"], link[rel="apple-touch-icon"], link[rel="apple-touch-icon-precomposed"]').forEach(function(el) {
       el.parentNode.removeChild(el);
     });
-    var icons = [
-      { rel: "icon",             type: "image/svg+xml", href: "/favicon.svg" },
-      { rel: "icon",             type: "image/png",     sizes: "32x32",   href: "/favicon/32.png" },
-      { rel: "icon",             type: "image/png",     sizes: "16x16",   href: "/favicon/16.png" },
-      { rel: "apple-touch-icon",                        sizes: "180x180", href: "/favicon/180.png" },
-      { rel: "icon",             type: "image/png",     sizes: "192x192", href: "/favicon/192.png" },
-      { rel: "icon",             type: "image/png",     sizes: "512x512", href: "/favicon/512.png" },
-    ];
+    // SVG only lives in the default incubator set today; skip it for non-default
+    // dirs so the playground tab doesn't 404 on /favicon-playground/favicon.svg.
+    var icons = [];
+    if (dir === "/favicon") {
+      icons.push({ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" });
+    }
+    icons.push(
+      { rel: "icon",             type: "image/png", sizes: "32x32",   href: dir + "/32.png" },
+      { rel: "icon",             type: "image/png", sizes: "16x16",   href: dir + "/16.png" },
+      { rel: "apple-touch-icon",                    sizes: "180x180", href: dir + "/180.png" },
+      { rel: "icon",             type: "image/png", sizes: "192x192", href: dir + "/192.png" },
+      { rel: "icon",             type: "image/png", sizes: "512x512", href: dir + "/512.png" },
+    );
     icons.forEach(function(cfg) {
       var link = document.createElement("link");
       link.rel = cfg.rel;
