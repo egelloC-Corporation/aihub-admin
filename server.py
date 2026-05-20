@@ -2545,7 +2545,11 @@ MANAGED_DATABASES = {
         # primary automatically (same DO cluster), so nothing to manage
         # here beyond surfacing the host for sync-check. Blank = disabled.
         "replica_host": os.environ.get("NEST_REPLICA_HOST", ""),
-        "replica_port": int(os.environ.get("NEST_REPLICA_PORT", "25060")),
+        # `int(env_var, default)` only honors the default when the var is unset;
+        # an explicit empty string (e.g. blanked for defense-in-depth on
+        # playground) trips int(""). The `or 0 or 25060` chain matches the
+        # defensive shape DB_READ_CONFIG uses up at module top.
+        "replica_port": int(os.environ.get("NEST_REPLICA_PORT") or 0) or 25060,
     },
     "acquisition": {
         "label": "Acquisition (Sales & Marketing)",
