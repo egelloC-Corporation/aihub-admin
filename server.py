@@ -495,6 +495,18 @@ def favicon_asset(filename):
     return send_from_directory("favicon", filename)
 
 
+@app.route("/favicon-<variant>/<path:filename>")
+def favicon_variant_asset(variant, filename):
+    """Serve per-instance favicon dirs (e.g. /favicon-playground/32.png).
+
+    The `variant` segment must match an actual directory in the repo root —
+    `send_from_directory` rejects traversal, so this only exposes files we
+    intentionally shipped. INSTANCE_FAVICON_DIR controls which variant the
+    UI requests via window.AIHUB_BRAND.favicon_dir.
+    """
+    return send_from_directory(f"favicon-{variant}", filename)
+
+
 @app.route("/assets/<path:filename>")
 def asset(filename):
     return send_from_directory("assets", filename)
