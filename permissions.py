@@ -529,13 +529,34 @@ def delete_submission(submission_id):
 
 
 def edit_submission(submission_id, slug=None, name=None, description=None, icon=None, port=None, streamlit_port=None, repo_url=None, env_keys=None, is_internal=None):
-    """Edit fields on an existing submission. Supports slug changes.
+    """Edit fields on an existing submission. Supports slug changes ONLY for
+    apps that haven't been approved yet — see "slug immutability" note below.
 
     `is_internal` toggles whether the app is treated as a background service.
     Setting it to 1 removes the row from app_registry (so it disappears from
     the Permissions matrix and the launcher); 0 puts it back. The init_db
     reconciliation also enforces this on every boot, so the in-place change
     here is just to make the UI feel responsive between deploys.
+
+    ── Slug immutability after approval ────────────────────────────────────
+    Once an app reaches `approved` / `live` / `error` status the slug is
+    wired into many places that this DB update does NOT touch:
+      - /var/www/aihub-admin/apps/<slug>/         (clone target)
+      - /var/www/aihub-admin/secrets/<slug>.env   (per-app secrets file)
+      - /etc/nginx/apps/<slug>.conf               (per-app nginx route)
+      - aihub-<slug>                              (docker container name)
+      - APP_SLUG build arg                        (baked into the image — sets
+                                                   Next.js assetPrefix, Flask
+                                                   url_prefix, etc.)
+      - Slack Event Subscription URLs the app exposed
+      - ClickUp / Slack / Linear references to old URL paths
+
+    Renaming any of those requires a coordinated migration that this endpoint
+    cannot perform safely. So we reject slug changes once the app is past
+    pending state — display Name remains freely editable, which is what most
+    "I want to rename this app" requests actually mean. If a true slug
+    migration is needed, the recovery path is: delete the app, resubmit
+    with the new slug.
     """
     conn = get_db()
     row = conn.execute("SELECT * FROM app_submissions WHERE id = ?", (submission_id,)).fetchone()
@@ -548,6 +569,20 @@ def edit_submission(submission_id, slug=None, name=None, description=None, icon=
 
     # Validate new slug if changing
     if new_slug:
+        # Reject slug edits after approval — see docstring for the
+        # full list of artifacts the slug is wired into.
+        if row["status"] in ("approved", "live", "error"):
+            conn.close()
+            return {
+                "error": (
+                    f"Slug is locked once the app is deployed (current status: {row['status']}). "
+                    "Slugs are wired into the container name, nginx route, secrets file path, "
+                    "docker image build args, and any Slack/ClickUp references to the app's URL — "
+                    "this endpoint can't safely rename all of them in lockstep. "
+                    "You can still edit the display Name freely (that's what shows in the banner). "
+                    "If you truly need to change the URL slug, delete the app and resubmit with the new slug."
+                )
+            }
         import re
         if not re.match(r'^[a-z][a-z0-9-]{1,30}$', new_slug):
             conn.close()

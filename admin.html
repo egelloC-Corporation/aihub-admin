@@ -3810,6 +3810,22 @@ function editApp(id) {
   var s = window._submissions && window._submissions[id];
   if (!s) return;
 
+  // Slug is wired into the container name, nginx route, secrets file, and
+  // docker image build args once the app is deployed. The
+  // /admin/api/apps/edit endpoint rejects slug changes for non-pending apps;
+  // mirror that here so the field is visibly read-only with an explanation
+  // instead of looking editable but failing on save.
+  var slugLocked = s.status === 'approved' || s.status === 'live' || s.status === 'error';
+  var slugLabelHint = slugLocked
+    ? '<span style="font-weight:normal;color:var(--text-dim);">(locked after deploy)</span>'
+    : '<span style="font-weight:normal;color:var(--text-dim);">(changes the URL)</span>';
+  var slugInputAttrs = slugLocked
+    ? ' readonly disabled title="Slug is locked once the app is deployed. Edit Name above to change what users see." style="font-family:monospace;opacity:0.6;cursor:not-allowed;"'
+    : ' style="font-family:monospace;"';
+  var slugHelpRow = slugLocked
+    ? '<div style="margin-top:4px;font-size:12px;color:var(--text-dim);line-height:1.4;">Slug becomes immutable once the app reaches <code>approved</code> / <code>live</code> / <code>error</code> state \u2014 renaming it would orphan the container, nginx route, secrets file, and image build args. The display <strong>Name</strong> above is freely editable and is what users see in the banner. To genuinely change the URL slug, delete the app and resubmit with the new slug.</div>'
+    : '';
+
   var overlay = document.createElement('div');
   overlay.className = 'edit-overlay';
   overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
@@ -3828,7 +3844,10 @@ function editApp(id) {
           '<input type="text" id="editName" value="' + (s.name || '').replace(/"/g, '&quot;') + '" style="flex:1;">' +
         '</div>' +
       '</div>' +
-      '<div class="form-group"><label>App Slug <span style="font-weight:normal;color:var(--text-dim);">(changes the URL)</span></label><input type="text" id="editSlug" value="' + (s.slug || '') + '" pattern="[a-z][a-z0-9-]+" maxlength="31" style="font-family:monospace;"></div>' +
+      '<div class="form-group"><label>App Slug ' + slugLabelHint + '</label>' +
+        '<input type="text" id="editSlug" value="' + (s.slug || '') + '" pattern="[a-z][a-z0-9-]+" maxlength="31"' + slugInputAttrs + '>' +
+        slugHelpRow +
+      '</div>' +
       '<div class="form-group"><label>Description</label><textarea id="editDesc">' + (s.description || '') + '</textarea></div>' +
       '<div class="form-group"><label>Port</label><input type="number" id="editPort" value="' + s.port + '" min="1024" max="65535"></div>' +
       '<div class="form-group"><label>Streamlit WebSocket Port <span style="font-weight:normal;color:var(--text-dim);">(optional, e.g. 8501)</span></label><input type="number" id="editStreamlitPort" value="' + (s.streamlit_port || '') + '" placeholder="blank for non-Streamlit apps" min="1024" max="65535"></div>' +
