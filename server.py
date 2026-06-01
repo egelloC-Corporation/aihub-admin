@@ -323,14 +323,32 @@ def auth_callback():
     # Save next_url before authorize_access_token() modifies the session
     next_url = session.get("next_url", "/")
 
-    token = google.authorize_access_token()
-    user_info = token.get("userinfo") or google.userinfo()
+    # Token exchange can fail for reasons the user can recover from by
+    # restarting the flow: stale state (session expired), reused code
+    # (page refresh on the callback URL), nonce mismatch after a cookie
+    # wipe, or a transient Google API hiccup. Without this guard, every
+    # one of those surfaces as a bare 500 and leaves the user stuck on
+    # a dead-end error page.
+    try:
+        token = google.authorize_access_token()
+        user_info = token.get("userinfo") or google.userinfo()
+    except Exception:
+        log.exception("OAuth callback failed during token exchange")
+        # Clear any half-written OAuth state so the next /login starts fresh.
+        for key in list(session.keys()):
+            if key.startswith("_state_google_") or key == "_google_authlib_nonce_":
+                session.pop(key, None)
+        return redirect(url_for("login", next=next_url))
 
     email = user_info.get("email", "")
     if not email.endswith(f"@{ALLOWED_DOMAIN}"):
         # Allow custom users added by admins (consultants, partners)
         from permissions import get_custom_users
-        allowed_emails = [u["email"].lower() for u in get_custom_users()]
+        try:
+            allowed_emails = [u["email"].lower() for u in get_custom_users()]
+        except Exception:
+            log.exception("OAuth callback failed reading custom_users")
+            allowed_emails = []
         if email.lower() not in allowed_emails:
             return Response(
                 f"Access denied. Only @{ALLOWED_DOMAIN} accounts or invited users are allowed.",
