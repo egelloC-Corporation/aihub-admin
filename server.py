@@ -73,6 +73,14 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 # Parent-scope the session cookie so it's valid across sibling subdomains
 # (aihub.egelloc.com and incubator.egelloc.com during the domain rename).
 app.config["SESSION_COOKIE_DOMAIN"] = os.environ.get("SESSION_COOKIE_DOMAIN", ".egelloc.com")
+# Per-instance cookie name so playground's host-only cookie doesn't collide
+# with incubator/aihub's `.egelloc.com`-scoped one. Without this, a user who
+# has logged into incubator first has two `session` cookies in their browser;
+# RFC 6265 says the older domain cookie is sent first, so playground reads
+# incubator's session, the OAuth state token is missing, and every callback
+# fails with MismatchingStateError.
+if os.environ.get("SESSION_COOKIE_NAME"):
+    app.config["SESSION_COOKIE_NAME"] = os.environ["SESSION_COOKIE_NAME"]
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 CORS(app)
 
