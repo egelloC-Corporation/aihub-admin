@@ -1,0 +1,74 @@
+services:
+  admin-panel:
+    build: .
+    container_name: aihub-admin-panel
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    ports:
+      - "5051:5051"
+    env_file: .env
+    environment:
+      - DEPLOY_SERVICE_URL=http://deploy-service:5001
+      - DB_HOST=db-mysql-nyc1-52583-do-user-18492245-0.e.db.ondigitalocean.com
+    volumes:
+      - ./permissions.db:/app/permissions.db
+      - ./readonly_db_users.json:/app/readonly_db_users.json
+      - ./ip_labels.json:/app/ip_labels.json
+      - ./ssh_aliases.json:/app/ssh_aliases.json
+      - /var/www/aihub-admin/secrets:/var/www/aihub-admin/secrets
+      - /etc/egelloc/keys:/etc/egelloc/keys
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('localhost',5051),2); s.close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - aihub
+
+  deploy-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.deploy
+    container_name: aihub-deploy-service
+    restart: unless-stopped
+    expose:
+      - "5001"
+    env_file: .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./apps:/app/apps
+      - ./nginx/apps:/app/nginx/apps
+      - ./nginx/production-apps:/app/nginx/production-apps:ro
+      - ./.env:/app/platform.env:ro
+      - /var/www/aihub-admin:/var/www/aihub-admin
+      - /etc/nginx/aihub-apps:/etc/nginx/aihub-apps
+    environment:
+      - DOCKER_NETWORK=aihub
+      - NGINX_APPS_DIR=/etc/nginx/aihub-apps
+      - NGINX_CONTAINER=aihub-nginx
+      - APPS_DIR=/app/apps
+      - HOST_APPS_DIR=/var/www/aihub-admin/apps
+      - POSTGRES_HOST=egelloc-ai-staging-db-do-user-33607902-0.i.db.ondigitalocean.com
+      - POSTGRES_PORT=25060
+      - POSTGRES_DB=aihub
+      - POSTGRES_USER=${POSTGRES_USER:-aihub_admin}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      # psycopg2 picks this up so db_provision.py connects with SSL
+      # without needing code changes.
+      - PGSSLMODE=require
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - PLATFORM_ENV_FILE=/app/platform.env
+      - AIHUB_AUTH_URL=http://admin-panel:5051/auth/me
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - aihub
+
+networks:
+  aihub:
+    name: aihub
+    driver: bridge

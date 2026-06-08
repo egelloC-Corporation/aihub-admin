@@ -240,7 +240,12 @@ fi
 # ─── 8. Start the compose stack ────────────────────────────────────────
 echo "==> Starting Docker Compose stack"
 cd "$REPO_DIR"
-docker compose -f docker-compose.production.yml up -d --build
+if [ "$VPS_ROLE" = "staging" ]; then
+  COMPOSE_FILE="docker-compose.staging.yml"
+else
+  COMPOSE_FILE="docker-compose.production.yml"
+fi
+docker compose -f "$COMPOSE_FILE" up -d --build
 
 echo
 echo "✓ Bootstrap complete. Admin panel: https://${APP_DOMAIN}"
