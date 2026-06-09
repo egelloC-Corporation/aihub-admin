@@ -300,6 +300,9 @@ def add_custom_user(email, first_name, last_name, role, added_by):
         "INSERT OR REPLACE INTO custom_users (email, first_name, last_name, role, added_by) VALUES (?, ?, ?, ?, ?)",
         (email.lower(), first_name, last_name, role, added_by),
     )
+    # Re-adding a user must un-hide them — a prior delete may have left a
+    # hidden_users row that would otherwise filter them out of the list.
+    conn.execute("DELETE FROM hidden_users WHERE email = ? COLLATE NOCASE", (email.lower(),))
     conn.commit()
     conn.close()
 
