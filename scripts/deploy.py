@@ -83,6 +83,35 @@ def _run(cmd, dry_run=False, check=True):
     return result.stdout.strip()
 
 
+def _check_disk_space(path="/", threshold_percent=90, dry_run=False):
+    """Abort the deploy if the host disk is too full to build.
+
+    docker build for a typical Node/Python app extracts 1-3 GB of layers
+    into /var/lib/docker during `npm ci` / `pip install`. When the host
+    is past ~95% the write aborts midway with "no space left on device",
+    leaving a dangling image — and, combined with the cleanup in
+    deploy_app's except block, can take down the previously-running
+    container even though it never touched the new build.
+
+    Aborting before the clone keeps the existing container untouched
+    and gives the operator a clear next step. Threshold is 90% so there
+    is headroom for the build itself.
+    """
+    if dry_run:
+        return
+    usage = shutil.disk_usage(path)
+    pct = (usage.used / usage.total) * 100
+    if pct >= threshold_percent:
+        free_gb = usage.free / (1024 ** 3)
+        raise RuntimeError(
+            f"Disk usage {pct:.0f}% on {path} (only {free_gb:.1f} GB free) — "
+            f"docker build will likely fail with 'no space left on device'. "
+            f"Run `docker image prune -f && docker builder prune -af` on the "
+            f"host (skip --volumes; aihub-postgres data lives there) before "
+            f"retrying."
+        )
+
+
 def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, dry_run=False):
     """Clone a repo or copy a local directory into apps/<app_name>/.
     If repo_subdir is set, only that subdirectory is used as the app root.
@@ -742,6 +771,9 @@ def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None,
     """
     steps = []
     try:
+        # 0. Refuse to start if the host disk is too full to build
+        _check_disk_space(dry_run=dry_run)
+
         # 1. Clone / copy source
         msg = _clone_or_copy(app_name, repo_url=repo_url, local_path=local_path, repo_subdir=repo_subdir, dry_run=dry_run)
         steps.append(msg)
@@ -802,8 +834,12 @@ def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None,
         step_names = ["clone", "build", "db_provision", "start", "nginx", "health_check"]
         failed_step = step_names[len(steps)] if len(steps) < len(step_names) else "unknown"
 
-        # Clean up partially-started container so it doesn't hold the port
-        if not dry_run:
+        # Only remove the container if a NEW one might be half-started.
+        # A failure before _start_container ran means the previously-deployed
+        # container (from the last successful deploy) is still serving
+        # traffic — removing it would turn a recoverable build failure into
+        # a full outage until someone manually relaunches.
+        if not dry_run and failed_step in ("start", "nginx", "health_check"):
             container_name = f"aihub-{app_name}"
             subprocess.run(
                 ["docker", "rm", "-f", container_name],
