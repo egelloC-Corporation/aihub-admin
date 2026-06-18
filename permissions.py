@@ -262,7 +262,7 @@ def get_all_permissions():
 def get_all_apps():
     """Get all registered apps."""
     conn = get_db()
-    rows = conn.execute("SELECT slug, name, description FROM app_registry ORDER BY name").fetchall()
+    rows = conn.execute("SELECT slug, name, description FROM app_registry ORDER BY name COLLATE NOCASE").fetchall()
     conn.close()
     return [dict(r) for r in rows]
 

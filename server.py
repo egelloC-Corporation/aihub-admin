@@ -567,7 +567,7 @@ def launcher_apps():
              -- so a launcher card or app-drawer entry pointing at them is
              -- misleading. Toggled per-row in app_submissions.
              AND COALESCE(s.is_internal, 0) = 0
-           ORDER BY s.name"""
+           ORDER BY s.name COLLATE NOCASE"""
     ).fetchall()
     conn.close()
     resp = jsonify({"apps": [dict(r) for r in rows]})
