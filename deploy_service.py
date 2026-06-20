@@ -279,6 +279,7 @@ def deploy():
     repo_url = body.get("repo_url")
     local_path = body.get("local_path")
     repo_subdir = body.get("repo_subdir")
+    branch = body.get("branch") or None
     dry_run = body.get("dry_run", False)
 
     if not app_name:
@@ -293,7 +294,7 @@ def deploy():
         actor_email=_actor_from_request(),
         metadata={"port": port, "streamlit_port": streamlit_port,
                   "repo_url": repo_url, "repo_subdir": repo_subdir,
-                  "dry_run": dry_run},
+                  "branch": branch, "dry_run": dry_run},
     ) as run:
         run.log_line(f"deploy: app={app_name} port={port} repo={repo_url or local_path}")
         result = deploy_app(
@@ -302,6 +303,7 @@ def deploy():
             repo_url=repo_url,
             local_path=local_path,
             repo_subdir=repo_subdir,
+            branch=branch,
             streamlit_port=int(streamlit_port) if streamlit_port else None,
             dry_run=dry_run,
         )

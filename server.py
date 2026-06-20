@@ -1094,6 +1094,7 @@ def api_submit_app():
     streamlit_port = body.get("streamlit_port")
     is_streamlit = body.get("is_streamlit", False)
     repo_url = (body.get("repo_url") or "").strip()
+    branch = (body.get("branch") or "main").strip() or "main"
     env_keys = (body.get("env_keys") or "").strip()
 
     if not slug or not name:
@@ -1109,14 +1110,15 @@ def api_submit_app():
         if is_streamlit and not streamlit_port:
             streamlit_port = auto_streamlit
 
-    # Auto-detect subdirectory from GitHub tree URLs
-    # e.g. https://github.com/org/repo/tree/main/my-app → repo=org/repo.git, subdir=my-app
-    tree_match = re.match(r"https://github\.com/([^/]+/[^/]+)/tree/[^/]+/(.+?)/?$", repo_url)
+    # Auto-detect subdirectory and branch from GitHub tree URLs
+    # e.g. https://github.com/org/repo/tree/dev/my-app → repo=org/repo.git, branch=dev, subdir=my-app
+    tree_match = re.match(r"https://github\.com/([^/]+/[^/]+)/tree/([^/]+)/(.+?)/?$", repo_url)
     if tree_match:
         repo_url = f"https://github.com/{tree_match.group(1)}.git"
-        repo_subdir = tree_match.group(2)
+        branch = tree_match.group(2)
+        repo_subdir = tree_match.group(3)
     else:
-        repo_subdir = None
+        repo_subdir = (body.get("repo_subdir") or "").strip() or None
     # Ensure repo_url ends with .git
     if repo_url and "github.com" in repo_url and not repo_url.endswith(".git"):
         repo_url = repo_url.rstrip("/") + ".git"
@@ -1163,7 +1165,7 @@ def api_submit_app():
         pass
 
     submitted_by = session["user"]["email"]
-    result = submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_keys, submitted_by, streamlit_port=streamlit_port)
+    result = submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_keys, submitted_by, streamlit_port=streamlit_port, branch=branch)
     if "error" in result:
         return jsonify(result), 409
     if validation:
@@ -1223,7 +1225,7 @@ def api_approve_app():
     try:
         from permissions import get_db
         conn = get_db()
-        row = conn.execute("SELECT slug, port, streamlit_port, repo_url, repo_subdir FROM app_submissions WHERE id = ?", (submission_id,)).fetchone()
+        row = conn.execute("SELECT slug, port, streamlit_port, repo_url, repo_subdir, branch FROM app_submissions WHERE id = ?", (submission_id,)).fetchone()
         conn.close()
         if row and row["repo_url"]:
             deploy_payload = {
@@ -1232,6 +1234,7 @@ def api_approve_app():
                 "streamlit_port": row["streamlit_port"],
                 "repo_url": row["repo_url"],
                 "repo_subdir": row["repo_subdir"] or None,
+                "branch": row["branch"] or "main",
             }
             http_requests.post(f"{DEPLOY_SERVICE_URL}/deploy", json=deploy_payload, timeout=5)
             result["auto_deploy"] = "triggered"

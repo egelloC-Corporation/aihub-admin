@@ -135,6 +135,7 @@ def init_db():
         "repo_subdir TEXT DEFAULT ''",
         "streamlit_port INTEGER",
         "is_internal INTEGER NOT NULL DEFAULT 0",
+        "branch TEXT NOT NULL DEFAULT 'main'",
     ]:
         try:
             conn.execute(f"ALTER TABLE app_submissions ADD COLUMN {col}")
@@ -326,7 +327,7 @@ def get_custom_users():
 
 # ── App Submissions ──
 
-def submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_keys, submitted_by, streamlit_port=None):
+def submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_keys, submitted_by, streamlit_port=None, branch="main"):
     """Submit a new app or update an existing one for review.
     If the slug already exists and is live/approved/error, resets it to pending (update flow).
 
@@ -346,11 +347,11 @@ def submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_k
             conn.execute(
                 """UPDATE app_submissions
                    SET name = ?, description = ?, icon = ?, port = ?, streamlit_port = ?, repo_url = ?, repo_subdir = ?, env_keys = ?,
-                       submitted_by = ?, status = 'pending',
+                       branch = ?, submitted_by = ?, status = 'pending',
                        reviewed_by = NULL, reviewed_at = NULL,
                        submitted_at = datetime('now')
                    WHERE slug = ?""",
-                (name, description, icon, port, streamlit_port, repo_url, repo_subdir or "", env_keys, submitted_by, slug),
+                (name, description, icon, port, streamlit_port, repo_url, repo_subdir or "", env_keys, branch or "main", submitted_by, slug),
             )
             conn.commit()
             conn.close()
@@ -363,11 +364,11 @@ def submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_k
             conn.execute(
                 """UPDATE app_submissions
                    SET name = ?, description = ?, icon = ?, port = ?, streamlit_port = ?, repo_url = ?, repo_subdir = ?, env_keys = ?,
-                       submitted_by = ?, status = 'pending',
+                       branch = ?, submitted_by = ?, status = 'pending',
                        reviewed_by = NULL, reviewed_at = NULL,
                        submitted_at = datetime('now')
                    WHERE slug = ?""",
-                (name, description, icon, port, streamlit_port, repo_url, repo_subdir or "", env_keys, submitted_by, slug),
+                (name, description, icon, port, streamlit_port, repo_url, repo_subdir or "", env_keys, branch or "main", submitted_by, slug),
             )
             conn.commit()
             conn.close()
@@ -375,9 +376,9 @@ def submit_app(slug, name, description, icon, port, repo_url, repo_subdir, env_k
 
     try:
         conn.execute(
-            """INSERT INTO app_submissions (slug, name, description, icon, port, streamlit_port, repo_url, repo_subdir, env_keys, submitted_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (slug, name, description, icon, port, streamlit_port, repo_url, repo_subdir or "", env_keys, submitted_by),
+            """INSERT INTO app_submissions (slug, name, description, icon, port, streamlit_port, repo_url, repo_subdir, env_keys, branch, submitted_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (slug, name, description, icon, port, streamlit_port, repo_url, repo_subdir or "", env_keys, branch or "main", submitted_by),
         )
         conn.commit()
     except sqlite3.IntegrityError:
