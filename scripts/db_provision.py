@@ -208,10 +208,22 @@ def _upsert_db_block(env_path, db_user, password, schema):
     # Managed Postgres (e.g. DigitalOcean on staging) requires TLS, whereas the
     # local `postgres` container (dev/prod) does not. Without sslmode, managed
     # connections fail with: no pg_hba.conf entry for host ... no encryption.
-    # Append sslmode=require for remote hosts; leave the local container as-is.
+    #
+    # Stack matters for the value: node-postgres verifies the cert chain on
+    # `require` and rejects the managed cluster's CA (SELF_SIGNED_CERT_IN_CHAIN);
+    # it accepts `no-verify` (encrypt, skip chain verify). libpq/psycopg instead
+    # *rejects* `no-verify` but treats `require` as encrypt-without-verify. So
+    # pick per stack (node detected by package.json next to the app's .env), and
+    # leave the local container untouched.
     _is_local = POSTGRES_HOST in ("postgres", "localhost", "127.0.0.1", "::1")
-    _sslq = "" if _is_local else "&sslmode=require"
-    _sslmode = "disable" if _is_local else "require"
+    _is_node = os.path.exists(os.path.join(os.path.dirname(env_path), "package.json"))
+    if _is_local:
+        _sslmode = "disable"
+    elif _is_node:
+        _sslmode = "no-verify"
+    else:
+        _sslmode = "require"
+    _sslq = "" if _is_local else f"&sslmode={_sslmode}"
 
     new_block = [
         "\n# Incubator shared database — auto-provisioned\n",
