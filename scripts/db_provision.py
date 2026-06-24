@@ -205,15 +205,25 @@ def _upsert_db_block(env_path, db_user, password, schema):
     while kept and kept[-1].strip() == "":
         kept.pop()
 
+    # Managed Postgres (e.g. DigitalOcean on staging) requires TLS, whereas the
+    # local `postgres` container (dev/prod) does not. Without sslmode, managed
+    # connections fail with: no pg_hba.conf entry for host ... no encryption.
+    # Append sslmode=require for remote hosts; leave the local container as-is.
+    _is_local = POSTGRES_HOST in ("postgres", "localhost", "127.0.0.1", "::1")
+    _sslq = "" if _is_local else "&sslmode=require"
+    _sslmode = "disable" if _is_local else "require"
+
     new_block = [
         "\n# Incubator shared database — auto-provisioned\n",
-        f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?schema={schema}&options=-csearch_path%3D{schema}\n",
+        f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?schema={schema}&options=-csearch_path%3D{schema}{_sslq}\n",
         f"DB_USER={db_user}\n",
         f"DB_PASSWORD={password}\n",
         f"DB_HOST={POSTGRES_HOST}\n",
         f"DB_PORT={POSTGRES_PORT}\n",
         f"DB_NAME={POSTGRES_DB}\n",
         f"DB_SCHEMA={schema}\n",
+        f"DB_SSLMODE={_sslmode}\n",
+        f"PGSSLMODE={_sslmode}\n",
     ]
 
     with open(env_path, "w") as f:
