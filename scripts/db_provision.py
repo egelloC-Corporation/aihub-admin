@@ -205,20 +205,56 @@ def _upsert_db_block(env_path, db_user, password, schema):
     while kept and kept[-1].strip() == "":
         kept.pop()
 
+    # Managed Postgres (e.g. DigitalOcean on staging) requires TLS, whereas the
+    # local `postgres` container (dev/prod) does not. Without sslmode, managed
+    # connections fail with: no pg_hba.conf entry for host ... no encryption.
+    #
+    # Stack matters for the value: node-postgres verifies the cert chain on
+    # `require` and rejects the managed cluster's CA (SELF_SIGNED_CERT_IN_CHAIN);
+    # it accepts `no-verify` (encrypt, skip chain verify). libpq/psycopg instead
+    # *rejects* `no-verify` but treats `require` as encrypt-without-verify. So
+    # pick per stack (node detected by package.json next to the app's .env), and
+    # leave the local container untouched.
+    _is_local = POSTGRES_HOST in ("postgres", "localhost", "127.0.0.1", "::1")
+    _is_node = os.path.exists(os.path.join(os.path.dirname(env_path), "package.json"))
+    if _is_local:
+        _sslmode = "disable"
+    elif _is_node:
+        _sslmode = "no-verify"
+    else:
+        _sslmode = "require"
+    _sslq = "" if _is_local else f"&sslmode={_sslmode}"
+
     new_block = [
         "\n# Incubator shared database — auto-provisioned\n",
-        f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?schema={schema}&options=-csearch_path%3D{schema}\n",
+        f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?schema={schema}{_sslq}\n",
         f"DB_USER={db_user}\n",
         f"DB_PASSWORD={password}\n",
         f"DB_HOST={POSTGRES_HOST}\n",
         f"DB_PORT={POSTGRES_PORT}\n",
         f"DB_NAME={POSTGRES_DB}\n",
         f"DB_SCHEMA={schema}\n",
+        f"DB_SSLMODE={_sslmode}\n",
+        f"PGSSLMODE={_sslmode}\n",
     ]
 
     with open(env_path, "w") as f:
         f.writelines(kept)
         f.writelines(new_block)
+
+
+def _existing_db_password(env_path):
+    """Return the DB_PASSWORD already provisioned in the app's .env, if any."""
+    try:
+        with open(env_path) as f:
+            for line in f:
+                if line.startswith("DB_PASSWORD="):
+                    v = line.split("=", 1)[1].strip()
+                    if v:
+                        return v
+    except FileNotFoundError:
+        pass
+    return None
 
 
 def create_app_user(app_name, dry_run=False):
@@ -229,7 +265,12 @@ def create_app_user(app_name, dry_run=False):
     safe_name = _sanitize_identifier(app_name)
     db_user = f"app_{safe_name}"
     schema = f"app_{safe_name}"
-    password = _generate_password()
+    env_path = os.path.join(os.path.abspath(APPS_DIR), app_name, ".env")
+    # Reuse the already-provisioned password if one exists in the app's .env.
+    # Regenerating on every deploy made the role password drift from the .env
+    # (deploy.py preserves the old .env), causing intermittent auth failures.
+    # A stable password keeps role and .env in sync across redeploys.
+    password = _existing_db_password(env_path) or _generate_password()
 
     sql_statements = _get_sql_create(db_user, password, schema)
 
@@ -260,6 +301,12 @@ def create_app_user(app_name, dry_run=False):
             cursor.execute(f"ALTER USER {q_user} WITH PASSWORD %s", (password,))
         else:
             cursor.execute(f"CREATE USER {q_user} WITH PASSWORD %s", (password,))
+
+        # Pin the role's search_path to its schema so every connection resolves
+        # unqualified objects there — robust across drivers that don't honor the
+        # connection-string `options=-csearch_path` param (e.g. node-pg migration
+        # runners hit "no schema has been selected to create in" otherwise).
+        cursor.execute(f'ALTER ROLE {q_user} SET search_path TO "{schema}", public')
 
         for sql, params in sql_statements:
             if params:
