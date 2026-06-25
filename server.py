@@ -1821,8 +1821,12 @@ def github_webhook():
 
     branch = body.get("ref", "").replace("refs/heads/", "")
 
-    # Only deploy from main/master branch
-    if branch not in ("main", "master"):
+    # Deploy from the branch that matches THIS instance: the staging incubator
+    # deploys pushes to the `staging` branch; production deploys main/master.
+    # (Same code on both hosts; behavior differs by VPS_ROLE in .env.)
+    _is_staging = os.environ.get("VPS_ROLE", "").strip().lower() == "staging"
+    _deploy_branches = ("staging",) if _is_staging else ("main", "master")
+    if branch not in _deploy_branches:
         return jsonify({"status": "ignored", "branch": branch}), 200
 
     log.info("Webhook push: %s (branch: %s)", repo_name, branch)
@@ -1913,6 +1917,7 @@ def github_webhook():
                         "streamlit_port": row["streamlit_port"],
                         "repo_url": row["repo_url"],
                         "repo_subdir": row["repo_subdir"] or None,
+                        "branch": branch,
                     },
                     timeout=5,
                 )

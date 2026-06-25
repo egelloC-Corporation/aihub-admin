@@ -112,7 +112,7 @@ def _check_disk_space(path="/", threshold_percent=90, dry_run=False):
         )
 
 
-def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, dry_run=False):
+def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, branch=None, dry_run=False):
     """Clone a repo or copy a local directory into apps/<app_name>/.
     If repo_subdir is set, only that subdirectory is used as the app root.
 
@@ -146,12 +146,14 @@ def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, d
 
     if repo_url:
         auth_url = _inject_github_token(repo_url)
+        # Optionally deploy a specific branch/ref (e.g. `staging`); default branch otherwise.
+        _branch_args = ["--branch", branch] if branch else []
         if repo_subdir:
             # Clone to a temp dir, then move the subdirectory
             tmp_dest = dest + "_tmp"
             if os.path.exists(tmp_dest) and not dry_run:
                 shutil.rmtree(tmp_dest)
-            msg = _run(["git", "clone", "--depth", "1", auth_url, tmp_dest], dry_run=dry_run)
+            msg = _run(["git", "clone", "--depth", "1", *_branch_args, auth_url, tmp_dest], dry_run=dry_run)
             if not dry_run:
                 subdir_path = os.path.join(tmp_dest, repo_subdir)
                 if not os.path.isdir(subdir_path):
@@ -161,8 +163,8 @@ def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, d
                 shutil.rmtree(tmp_dest)
             result_msg = msg or f"Cloned {_safe_url(repo_url)} (subdir: {repo_subdir}) → {dest}"
         else:
-            msg = _run(["git", "clone", "--depth", "1", auth_url, dest], dry_run=dry_run)
-            result_msg = msg or f"Cloned {_safe_url(repo_url)} → {dest}"
+            msg = _run(["git", "clone", "--depth", "1", *_branch_args, auth_url, dest], dry_run=dry_run)
+            result_msg = msg or f"Cloned {_safe_url(repo_url)}{f' ({branch})' if branch else ''} → {dest}"
     else:
         abs_path = os.path.abspath(local_path)
         if dry_run:
@@ -775,7 +777,7 @@ def test_app(app_name, port, repo_url=None, local_path=None):
     }
 
 
-def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None, streamlit_port=None, dry_run=False):
+def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None, branch=None, streamlit_port=None, dry_run=False):
     """
     Full deploy pipeline. Returns a result dict.
 
@@ -789,7 +791,7 @@ def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None,
         _check_disk_space(dry_run=dry_run)
 
         # 1. Clone / copy source
-        msg = _clone_or_copy(app_name, repo_url=repo_url, local_path=local_path, repo_subdir=repo_subdir, dry_run=dry_run)
+        msg = _clone_or_copy(app_name, repo_url=repo_url, local_path=local_path, repo_subdir=repo_subdir, branch=branch, dry_run=dry_run)
         steps.append(msg)
 
         # 2. Build Docker image
