@@ -227,7 +227,7 @@ def _upsert_db_block(env_path, db_user, password, schema):
 
     new_block = [
         "\n# Incubator shared database — auto-provisioned\n",
-        f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?schema={schema}&options=-csearch_path%3D{schema}{_sslq}\n",
+        f"DATABASE_URL=postgresql://{db_user}:{password}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}?schema={schema}{_sslq}\n",
         f"DB_USER={db_user}\n",
         f"DB_PASSWORD={password}\n",
         f"DB_HOST={POSTGRES_HOST}\n",
@@ -282,6 +282,12 @@ def create_app_user(app_name, dry_run=False):
             cursor.execute(f"ALTER USER {q_user} WITH PASSWORD %s", (password,))
         else:
             cursor.execute(f"CREATE USER {q_user} WITH PASSWORD %s", (password,))
+
+        # Pin the role's search_path to its schema so every connection resolves
+        # unqualified objects there — robust across drivers that don't honor the
+        # connection-string `options=-csearch_path` param (e.g. node-pg migration
+        # runners hit "no schema has been selected to create in" otherwise).
+        cursor.execute(f'ALTER ROLE {q_user} SET search_path TO "{schema}", public')
 
         for sql, params in sql_statements:
             if params:
