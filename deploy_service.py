@@ -279,6 +279,7 @@ def deploy():
     repo_url = body.get("repo_url")
     local_path = body.get("local_path")
     repo_subdir = body.get("repo_subdir")
+    branch = body.get("branch") or body.get("ref")
     dry_run = body.get("dry_run", False)
 
     if not app_name:
@@ -302,6 +303,7 @@ def deploy():
             repo_url=repo_url,
             local_path=local_path,
             repo_subdir=repo_subdir,
+            branch=branch,
             streamlit_port=int(streamlit_port) if streamlit_port else None,
             dry_run=dry_run,
         )
