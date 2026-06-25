@@ -243,6 +243,20 @@ def _upsert_db_block(env_path, db_user, password, schema):
         f.writelines(new_block)
 
 
+def _existing_db_password(env_path):
+    """Return the DB_PASSWORD already provisioned in the app's .env, if any."""
+    try:
+        with open(env_path) as f:
+            for line in f:
+                if line.startswith("DB_PASSWORD="):
+                    v = line.split("=", 1)[1].strip()
+                    if v:
+                        return v
+    except FileNotFoundError:
+        pass
+    return None
+
+
 def create_app_user(app_name, dry_run=False):
     """
     Create a scoped DB user for an app.
@@ -251,7 +265,12 @@ def create_app_user(app_name, dry_run=False):
     safe_name = _sanitize_identifier(app_name)
     db_user = f"app_{safe_name}"
     schema = f"app_{safe_name}"
-    password = _generate_password()
+    env_path = os.path.join(os.path.abspath(APPS_DIR), app_name, ".env")
+    # Reuse the already-provisioned password if one exists in the app's .env.
+    # Regenerating on every deploy made the role password drift from the .env
+    # (deploy.py preserves the old .env), causing intermittent auth failures.
+    # A stable password keeps role and .env in sync across redeploys.
+    password = _existing_db_password(env_path) or _generate_password()
 
     sql_statements = _get_sql_create(db_user, password, schema)
 
