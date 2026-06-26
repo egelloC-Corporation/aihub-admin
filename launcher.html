@@ -75,6 +75,23 @@
       font-size: 15px; color: var(--text-muted);
     }
 
+    .app-search {
+      margin: 16px auto 0;
+      display: block;
+      width: 100%;
+      max-width: 360px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .app-search:focus { border-color: var(--accent); }
+    .app-search::placeholder { color: var(--text-dim); }
+
     .app-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -246,11 +263,16 @@
       <button onclick="setView('grid')" title="Grid view"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="0" width="7" height="7" rx="1.5"/><rect x="9" y="0" width="7" height="7" rx="1.5"/><rect x="0" y="9" width="7" height="7" rx="1.5"/><rect x="9" y="9" width="7" height="7" rx="1.5"/></svg></button>
       <button onclick="setView('list')" title="List view"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="0" y="1" width="16" height="3" rx="1"/><rect x="0" y="6.5" width="16" height="3" rx="1"/><rect x="0" y="12" width="16" height="3" rx="1"/></svg></button>
     </div>
+    <input type="text" id="appSearch" class="app-search" placeholder="Search applications&hellip;"
+           autocomplete="off" aria-label="Search applications">
   </div>
 
   <div class="app-grid" id="appGrid">
     <!-- Apps loaded dynamically -->
   </div>
+  <p id="appSearchEmpty" style="display:none;color:var(--text-muted);text-align:center;margin-top:8px;">
+    No applications match your search.
+  </p>
 </div>
 
 <div class="footer" id="brandFooter">egelloC Incubator</div>
@@ -408,6 +430,27 @@ function renderApps(userPerms, deployedApps) {
   }).join("");
 
   initDragAndDrop();
+  filterApps();
+}
+
+// Show only the app cards whose name or description matches the search box.
+// Toggles display rather than re-rendering, so drag order and handlers survive.
+function filterApps() {
+  var input = document.getElementById("appSearch");
+  if (!input) return;
+  var q = input.value.trim().toLowerCase();
+  var cards = document.querySelectorAll("#appGrid .app-card");
+  var visible = 0;
+  cards.forEach(function(card) {
+    var name = (card.querySelector(".app-name") || {}).textContent || "";
+    var desc = (card.querySelector(".app-desc") || {}).textContent || "";
+    var match = !q || (name + " " + desc).toLowerCase().indexOf(q) !== -1;
+    card.style.display = match ? "" : "none";
+    if (match) visible++;
+  });
+  var empty = document.getElementById("appSearchEmpty");
+  // Only show "no matches" when a query is active and the grid itself is non-empty.
+  if (empty) empty.style.display = (q && visible === 0 && cards.length > 0) ? "block" : "none";
 }
 
 function initDragAndDrop() {
@@ -498,6 +541,12 @@ function setView(mode) {
 })();
 
 init();
+
+// Live-filter the app grid as the user types.
+(function() {
+  var search = document.getElementById("appSearch");
+  if (search) search.addEventListener("input", filterApps);
+})();
 
 // Apply brand to hero logo, tagline, and footer.
 (function() {

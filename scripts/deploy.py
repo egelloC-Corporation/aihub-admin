@@ -450,6 +450,20 @@ def _start_container(app_name, port, streamlit_port=None, dry_run=False):
                 if not os.path.exists(host_abs) and not dry_run:
                     try:
                         open(host_abs, "a").close()
+                        # Bind-mounted state files must be writable by the
+                        # container app user, not root. Most containerized
+                        # apps here run as uid 1001 (the Node.js nextjs
+                        # pattern, plus several custom Dockerfiles). Without
+                        # this chown the bind-mount drops in as root:root
+                        # 644 and the in-app json_state writer hits EACCES
+                        # on the first persist attempt. Concrete incident:
+                        # 2026-06-23 — Jarvis digest aborted every tick
+                        # post-redeploy because digest-state.json was
+                        # root-owned and the safety guard refused to post.
+                        try:
+                            os.chown(host_abs, 1001, 1001)
+                        except OSError:
+                            pass
                     except OSError:
                         pass
                 cmd.insert(-1, "-v")
