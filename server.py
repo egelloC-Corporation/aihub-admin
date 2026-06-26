@@ -337,16 +337,36 @@ def auth_callback():
     # wipe, or a transient Google API hiccup. Without this guard, every
     # one of those surfaces as a bare 500 and leaves the user stuck on
     # a dead-end error page.
+    # timeout= flows through authlib into the underlying requests call, so a
+    # slow/stalled Google endpoint fails fast instead of hanging the worker
+    # forever (which shows up as a spinner that "goes nowhere").
     try:
-        token = google.authorize_access_token()
-        user_info = token.get("userinfo") or google.userinfo()
+        token = google.authorize_access_token(timeout=10)
+        user_info = token.get("userinfo") or google.userinfo(timeout=10)
     except Exception:
         log.exception("OAuth callback failed during token exchange")
-        # Clear any half-written OAuth state so the next /login starts fresh.
+        # Clear any half-written OAuth state so the next attempt starts fresh.
         for key in list(session.keys()):
             if key.startswith("_state_google_") or key == "_google_authlib_nonce_":
                 session.pop(key, None)
-        return redirect(url_for("login", next=next_url))
+        # Show an explicit retry page instead of auto-redirecting back into
+        # /login. An automatic redirect turns a recoverable failure (expired
+        # state, transient Google timeout) into an invisible login→Google→
+        # callback→login loop that the user just experiences as a hang.
+        retry_url = url_for("login", next=next_url)
+        return Response(
+            '<!DOCTYPE html><html><head><title>Sign-in failed</title>'
+            '<style>body{background:#0f1117;color:#e4e6eb;font-family:-apple-system,sans-serif;'
+            'display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;}'
+            'a{color:#4f8ff7;text-decoration:none;padding:10px 24px;border:1px solid #4f8ff7;'
+            'border-radius:8px;margin-top:16px;}a:hover{background:rgba(79,143,247,0.12);}</style></head>'
+            '<body><h2>Sign-in didn\'t complete</h2>'
+            '<p style="color:#8b8fa3;margin-top:8px;max-width:420px;text-align:center;">'
+            'Your sign-in session expired or Google took too long to respond. '
+            'This usually clears up on a second try.</p>'
+            f'<a href="{retry_url}">Try signing in again</a></body></html>',
+            status=503, content_type="text/html",
+        )
 
     email = user_info.get("email", "")
     if not email.endswith(f"@{ALLOWED_DOMAIN}"):
