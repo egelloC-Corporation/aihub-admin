@@ -18,7 +18,9 @@ Usage:
 """
 
 import argparse
+import base64
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -120,6 +122,14 @@ def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, b
     credentials, API keys) that aren't in source control and can't be
     regenerated. Without this, every push-to-main deploy would silently
     delete the credentials and break the app on next start.
+
+    Atomic via stage-and-swap: writes go to dest.new, then a single
+    rename swings the live `dest` over. The Jun 26 2026 outage was the
+    old pattern (rmtree(dest); clone(dest)) getting interrupted by a
+    DigitalOcean reboot mid-clone, leaving `dest` empty — which broke
+    the systemd-unit symlinks pointing into it. Stage-and-swap can
+    still be interrupted, but never with `dest` in a half-state: either
+    the old tree or the new tree is in place, never neither.
     """
     # Validate inputs BEFORE touching the filesystem. A prior bug raised
     # this after rmtree, which meant a bad /deploy payload would wipe the
@@ -130,19 +140,25 @@ def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, b
         raise ValueError("Either repo_url or local_path is required")
 
     dest = os.path.join(APPS_DIR, app_name)
+    staging = dest + ".new"
+    rollback = dest + ".old"
 
     # Snapshot .env (and any other persist-list file) before wipe
     preserved = {}
     persist_files = [".env"]
-    if not dry_run and os.path.exists(dest):
+    if not dry_run and os.path.isdir(dest):
         for fname in persist_files:
             fpath = os.path.join(dest, fname)
             if os.path.isfile(fpath):
                 with open(fpath, "rb") as f:
                     preserved[fname] = f.read()
 
-    if os.path.exists(dest) and not dry_run:
-        shutil.rmtree(dest)
+    # Clean up leftovers from a prior interrupted deploy
+    if not dry_run:
+        if os.path.exists(staging):
+            shutil.rmtree(staging)
+        if os.path.exists(rollback):
+            shutil.rmtree(rollback)
 
     if repo_url:
         auth_url = _inject_github_token(repo_url)
@@ -150,39 +166,39 @@ def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, b
         if branch:
             clone_cmd += ["--branch", branch]
         if repo_subdir:
-            # Clone to a temp dir, then move the subdirectory
-            tmp_dest = dest + "_tmp"
-            if os.path.exists(tmp_dest) and not dry_run:
-                shutil.rmtree(tmp_dest)
-            msg = _run(clone_cmd + [auth_url, tmp_dest], dry_run=dry_run)
+            # Clone full repo to a temp, move its subdir into staging,
+            # then drop the temp. Same-filesystem rename so it's atomic.
+            tmp_clone = staging + "_clone"
+            if not dry_run and os.path.exists(tmp_clone):
+                shutil.rmtree(tmp_clone)
+            msg = _run(clone_cmd + [auth_url, tmp_clone], dry_run=dry_run)
             if not dry_run:
-                subdir_path = os.path.join(tmp_dest, repo_subdir)
+                subdir_path = os.path.join(tmp_clone, repo_subdir)
                 if not os.path.isdir(subdir_path):
-                    shutil.rmtree(tmp_dest)
+                    shutil.rmtree(tmp_clone)
                     raise RuntimeError(f"Subdirectory '{repo_subdir}' not found in repo")
-                shutil.copytree(subdir_path, dest, dirs_exist_ok=True)
-                shutil.rmtree(tmp_dest)
+                os.rename(subdir_path, staging)
+                shutil.rmtree(tmp_clone)
             result_msg = msg or f"Cloned {_safe_url(repo_url)} (subdir: {repo_subdir}) → {dest}"
         else:
-            msg = _run(clone_cmd + [auth_url, dest], dry_run=dry_run)
+            msg = _run(clone_cmd + [auth_url, staging], dry_run=dry_run)
             result_msg = msg or f"Cloned {_safe_url(repo_url)} → {dest}"
     else:
         abs_path = os.path.abspath(local_path)
         if dry_run:
             return f"Would copy {abs_path} → {dest}"
-        shutil.copytree(abs_path, dest, dirs_exist_ok=True)
+        shutil.copytree(abs_path, staging)
         result_msg = f"Copied {abs_path} → {dest}"
 
-    # Restore preserved files verbatim. db_provision.create_app_user now
-    # upserts its DB block in place, so we don't need to strip auto-
-    # provisioned lines before restoring — every non-DB line (user-added
-    # secrets like API keys, NEST_DB_*, ADMIN_SECRET) survives regardless
-    # of whether it sat before or after the auto marker.
+    # Restore preserved files into staging BEFORE the swap so the live
+    # `dest` always has an .env. db_provision.create_app_user now upserts
+    # its DB block in place, so non-DB lines (API keys, NEST_DB_*,
+    # ADMIN_SECRET) survive regardless of where they sat.
     if not dry_run and preserved:
         for fname, content in preserved.items():
             if not content.strip():
                 continue
-            fpath = os.path.join(dest, fname)
+            fpath = os.path.join(staging, fname)
             with open(fpath, "wb") as f:
                 f.write(content)
             try:
@@ -190,7 +206,111 @@ def _clone_or_copy(app_name, repo_url=None, local_path=None, repo_subdir=None, b
             except OSError:
                 pass
 
+    # Atomic swap. Each rename is atomic at the inode level. An
+    # interruption between them leaves `rollback` on disk; the cleanup
+    # at the top of the next deploy will sweep it.
+    if not dry_run:
+        if os.path.exists(dest):
+            os.rename(dest, rollback)
+        os.rename(staging, dest)
+        if os.path.exists(rollback):
+            shutil.rmtree(rollback)
+
     return result_msg
+
+
+def _run_on_host(inner_cmd, timeout=30):
+    """Local copy of deploy_service.run_on_host to avoid a circular import.
+    Executes inner_cmd in the host's mount namespace via alpine+nsenter.
+    Caller is responsible for shlex.quote'ing any interpolated values.
+    Returns (returncode, stdout, stderr).
+    """
+    outer = (
+        "apk add --no-cache util-linux -q && "
+        f"nsenter -t 1 -m -u -i -n -p -- sh -c {shlex.quote(inner_cmd)}"
+    )
+    cmd = ["docker", "run", "--rm", "--pid=host", "--privileged",
+           "alpine", "sh", "-c", outer]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def _sync_systemd_units(app_name, dry_run=False):
+    """Sync apps/<name>/deploy/systemd/*.{service,timer} to host
+    /etc/systemd/system/, daemon-reload, and restart timers whose unit
+    file changed. No-op if the app ships no systemd units.
+
+    Closes the gap from the Jun 26 2026 outage: cai2026's systemd unit
+    files were symlinked from /etc/systemd/system/ into the source tree,
+    so every interrupted deploy could orphan the symlink target. Owning
+    the install + reload here means unit files become regular files
+    sourced from the repo, refreshed deterministically per deploy.
+
+    Restart policy:
+      - .timer files: always restart on change (picks up schedule changes)
+      - .service files: NEVER auto-restart here. A long-running service
+        like cai2026.service should restart only after the new image is
+        in place, which happens later in deploy_app (build + start). A
+        oneshot tick-service like cai2026-cron.service shouldn't be
+        manually fired at all — its timer triggers it. Restarting the
+        service here would do the wrong thing in both cases.
+    """
+    units_dir = os.path.join(APPS_DIR, app_name, "deploy", "systemd")
+    if not os.path.isdir(units_dir):
+        return []
+
+    files = sorted(
+        f for f in os.listdir(units_dir)
+        if f.endswith((".service", ".timer"))
+        and os.path.isfile(os.path.join(units_dir, f))
+    )
+    if not files:
+        return []
+
+    changed = []
+    for fname in files:
+        src = os.path.join(units_dir, fname)
+        dst_host = f"/etc/systemd/system/{fname}"
+        with open(src, "rb") as f:
+            new_content = f.read()
+
+        rc, host_content, _ = _run_on_host(
+            f"cat {shlex.quote(dst_host)} 2>/dev/null; true"
+        )
+        if rc == 0 and host_content.encode() == new_content:
+            continue
+
+        if dry_run:
+            changed.append(fname)
+            continue
+
+        # Push via base64 to avoid quoting hazards in unit-file content.
+        b64 = base64.b64encode(new_content).decode()
+        tmp = f"/tmp/{fname}.deploy.{os.getpid()}"
+        cmd = (
+            f"echo {b64} | base64 -d > {shlex.quote(tmp)} && "
+            f"chmod 644 {shlex.quote(tmp)} && "
+            f"chown root:root {shlex.quote(tmp)} && "
+            f"mv {shlex.quote(tmp)} {shlex.quote(dst_host)}"
+        )
+        rc, _, err = _run_on_host(cmd)
+        if rc != 0:
+            raise RuntimeError(f"Failed to install {fname} to {dst_host}: {err}")
+        changed.append(fname)
+
+    if not changed or dry_run:
+        return changed
+
+    rc, _, err = _run_on_host("systemctl daemon-reload")
+    if rc != 0:
+        raise RuntimeError(f"systemctl daemon-reload failed: {err}")
+
+    for fname in changed:
+        if fname.endswith(".timer"):
+            _run_on_host(f"systemctl restart {shlex.quote(fname)}")
+        # .service files: see Restart policy in docstring — caller handles.
+
+    return changed
 
 
 DOCKERFILE_NODE = """\
@@ -795,6 +915,18 @@ def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None,
         msg = _clone_or_copy(app_name, repo_url=repo_url, local_path=local_path, repo_subdir=repo_subdir, branch=branch, dry_run=dry_run)
         steps.append(msg)
 
+        # 1b. Sync any host-side systemd units the app ships and reload.
+        # Apps without deploy/systemd/ get a no-op. Owning install +
+        # daemon-reload here means a unit-file change is picked up by
+        # the next tick, instead of waiting for an operator to SSH in.
+        # Always append a step entry (even on no-op) so step_names
+        # below indexes correctly into `steps`.
+        changed_units = _sync_systemd_units(app_name, dry_run=dry_run)
+        if changed_units:
+            steps.append(f"Synced systemd units: {', '.join(changed_units)}")
+        else:
+            steps.append("No systemd unit changes to sync")
+
         # 2. Build Docker image
         msg = _build_image(app_name, port=port, dry_run=dry_run)
         steps.append(msg)
@@ -848,7 +980,7 @@ def deploy_app(app_name, port, repo_url=None, local_path=None, repo_subdir=None,
 
     except Exception as e:
         # Determine which step failed based on steps completed
-        step_names = ["clone", "build", "db_provision", "start", "nginx", "health_check"]
+        step_names = ["clone", "sync_systemd_units", "build", "db_provision", "start", "nginx", "health_check"]
         failed_step = step_names[len(steps)] if len(steps) < len(step_names) else "unknown"
 
         # Only remove the container if a NEW one might be half-started.
