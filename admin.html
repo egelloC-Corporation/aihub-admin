@@ -3866,6 +3866,10 @@ function editApp(id) {
       '<div class="form-group"><label>Port</label><input type="number" id="editPort" value="' + s.port + '" min="1024" max="65535"></div>' +
       '<div class="form-group"><label>Streamlit WebSocket Port <span style="font-weight:normal;color:var(--text-dim);">(optional, e.g. 8501)</span></label><input type="number" id="editStreamlitPort" value="' + (s.streamlit_port || '') + '" placeholder="blank for non-Streamlit apps" min="1024" max="65535"></div>' +
       '<div class="form-group"><label>Git Repository URL</label><input type="text" id="editRepo" value="' + (s.repo_url || '').replace(/"/g, '&quot;') + '"></div>' +
+      '<div class="form-group"><label>External URL <span style="font-weight:normal;color:var(--text-dim);">(optional, for apps on their own subdomain)</span></label>' +
+        '<input type="text" id="editExternalUrl" value="' + (s.external_url || '').replace(/"/g, '&quot;') + '" placeholder="https://app.egelloc.com/" style="font-family:monospace;">' +
+        '<div style="margin-top:4px;font-size:12px;color:var(--text-dim);line-height:1.4;">Set when the app lives on its own subdomain instead of behind the platform proxy. Launcher cards and the app-switcher will link to this absolute URL instead of <code>/' + (s.slug || 'slug') + '/</code>. Leave blank for the default proxy path.</div>' +
+      '</div>' +
       '<div class="edit-modal-actions">' +
         '<button class="edit-cancel" onclick="this.closest(\'.edit-overlay\').remove()">Cancel</button>' +
         '<button class="edit-save" id="editSaveBtn">Save</button>' +
@@ -3892,6 +3896,7 @@ function editApp(id) {
           port: parseInt(document.getElementById('editPort').value) || s.port,
           streamlit_port: (function(){ var v = document.getElementById('editStreamlitPort').value.trim(); return v === '' ? 0 : parseInt(v); })(),
           repo_url: document.getElementById('editRepo').value.trim(),
+          external_url: document.getElementById('editExternalUrl').value.trim(),
         }),
       });
       var data = await resp.json();

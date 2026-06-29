@@ -136,6 +136,13 @@ def init_db():
         "streamlit_port INTEGER",
         "is_internal INTEGER NOT NULL DEFAULT 0",
         "branch TEXT NOT NULL DEFAULT 'main'",
+        # external_url overrides the default `/slug/` proxy path for apps that
+        # live on their own subdomain (e.g. CAI 2026 at cai2026.egelloc.com).
+        # When set, the launcher card and app-drawer tile link straight to the
+        # absolute URL instead of routing through this host — necessary because
+        # an externally-hosted Next.js/SPA emits root-relative asset paths
+        # (/_next/static/*) that 404 when fetched against playground.egelloc.com.
+        "external_url TEXT DEFAULT ''",
     ]:
         try:
             conn.execute(f"ALTER TABLE app_submissions ADD COLUMN {col}")
@@ -532,7 +539,7 @@ def delete_submission(submission_id):
     }
 
 
-def edit_submission(submission_id, slug=None, name=None, description=None, icon=None, port=None, streamlit_port=None, repo_url=None, env_keys=None, is_internal=None):
+def edit_submission(submission_id, slug=None, name=None, description=None, icon=None, port=None, streamlit_port=None, repo_url=None, env_keys=None, is_internal=None, external_url=None):
     """Edit fields on an existing submission. Supports slug changes ONLY for
     apps that haven't been approved yet — see "slug immutability" note below.
 
@@ -617,6 +624,10 @@ def edit_submission(submission_id, slug=None, name=None, description=None, icon=
     if is_internal is not None:
         # Coerce to 0/1 — accept truthy/falsy from the API.
         updates["is_internal"] = 1 if is_internal else 0
+    if external_url is not None:
+        # Empty string clears the override; the launcher then falls back to
+        # the default `/slug/` proxy path.
+        updates["external_url"] = external_url.strip()
 
     if not updates:
         conn.close()

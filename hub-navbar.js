@@ -336,7 +336,11 @@
       .then(function(r) { return r.ok ? r.json() : { apps: [] }; })
       .then(function(data) {
         return (data.apps || []).map(function(a) {
-          return { slug: a.slug, name: a.name, icon: a.icon || "\ud83d\udce6", url: "/" + a.slug + "/" };
+          // external_url, when set, points to the app's own subdomain
+          // (e.g. https://cai2026.egelloc.com/). The default `/slug/` path
+          // breaks for externally-hosted apps because their root-relative
+          // asset URLs (/_next/static/*) don't exist on the platform host.
+          return { slug: a.slug, name: a.name, icon: a.icon || "\ud83d\udce6", url: a.external_url || ("/" + a.slug + "/") };
         });
       })
       .catch(function() { return []; });

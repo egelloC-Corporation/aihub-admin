@@ -357,12 +357,15 @@ async function loadDeployedApps() {
     if (!resp.ok) return [];
     const data = await resp.json();
     return (data.apps || []).map(function(app) {
+      // external_url overrides the default proxy path for apps on their own
+      // subdomain (e.g. CAI 2026). Without it the browser would resolve the
+      // app's /_next/static/* against playground.egelloc.com and 404.
       return {
         slug: app.slug,
         name: app.name,
         description: app.description || "",
         icon: app.icon || "&#x1f4e6;",
-        url: "/" + app.slug + "/",
+        url: app.external_url || ("/" + app.slug + "/"),
         alwaysAccessible: false,
       };
     });
