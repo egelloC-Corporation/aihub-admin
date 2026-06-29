@@ -579,7 +579,8 @@ def launcher_apps():
     from permissions import get_db
     conn = get_db()
     rows = conn.execute(
-        """SELECT s.slug, s.name, s.description, s.icon, s.port
+        """SELECT s.slug, s.name, s.description, s.icon, s.port,
+                  COALESCE(s.external_url, '') AS external_url
            FROM app_submissions s
            WHERE s.status = 'live'
              -- Hide background services (webhook ingesters, headless APIs).
@@ -1284,6 +1285,7 @@ def api_edit_app():
         repo_url=body.get("repo_url"),
         env_keys=body.get("env_keys"),
         is_internal=body.get("is_internal"),
+        external_url=body.get("external_url"),
     )
     if "error" in result:
         return jsonify(result), 400
@@ -1292,7 +1294,7 @@ def api_edit_app():
               user_name=session["user"].get("name"),
               app_slug=result.get("slug") or str(submission_id),
               metadata={"submission_id": submission_id,
-                        "fields": [k for k in ("slug","name","description","icon","port","streamlit_port","repo_url","env_keys","is_internal") if body.get(k) is not None]})
+                        "fields": [k for k in ("slug","name","description","icon","port","streamlit_port","repo_url","env_keys","is_internal","external_url") if body.get(k) is not None]})
     return jsonify(result)
 
 
