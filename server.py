@@ -680,6 +680,51 @@ def admin_page():
     return resp
 
 
+# Launcher "Updates" sidebar
+# Read is open to any logged-in user; posting/deleting is admin-only.
+# Storage lives in permissions.db (see permissions.py) so updates are shared
+# across all users and survive restarts. Inline imports match launcher_apps().
+
+@app.route("/launcher/api/announcements")
+@login_required
+def launcher_announcements():
+    """Any authenticated user can read the updates sidebar."""
+    from permissions import get_announcements
+    resp = jsonify({"announcements": get_announcements()})
+    resp.headers["Cache-Control"] = "no-cache"   # match launcher_apps freshness
+    return resp
+
+
+@app.route("/launcher/api/announcements", methods=["POST"])
+@admin_required
+def launcher_announcements_create():
+    from permissions import create_announcement
+    body = (request.get_json() or {}).get("body", "").strip()
+    if not body:
+        return jsonify({"error": "body required"}), 400
+    if len(body) > 2000:
+        return jsonify({"error": "too long"}), 400
+    user = session["user"]
+    new_id = create_announcement(body, user["email"], user.get("name", ""))
+    log_event("announcement", "create_announcement",
+              user_email=user["email"], user_name=user.get("name"),
+              app_slug="launcher", detail=body[:80],
+              metadata={"announcement_id": new_id})
+    return jsonify({"status": "created", "id": new_id})
+
+
+@app.route("/launcher/api/announcements/<int:announcement_id>/delete", methods=["POST"])
+@admin_required
+def launcher_announcements_delete(announcement_id):
+    from permissions import delete_announcement
+    delete_announcement(announcement_id)
+    user = session["user"]
+    log_event("announcement", "delete_announcement",
+              user_email=user["email"], user_name=user.get("name"),
+              app_slug="launcher", metadata={"announcement_id": announcement_id})
+    return jsonify({"status": "deleted"})
+
+
 def _fetch_staff_safe():
     """Fetch Nest staff via the pool, returning (staff, diag_dict).
 

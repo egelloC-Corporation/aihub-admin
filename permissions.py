@@ -123,6 +123,14 @@ def init_db():
             reviewed_at TEXT,
             is_internal INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS announcements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            body TEXT NOT NULL,
+            created_by TEXT NOT NULL,        -- author email
+            created_by_name TEXT DEFAULT '', -- display name at post time
+            created_at TEXT DEFAULT (datetime('now'))
+        );
     """)
 
     # Migrate: add columns if missing.
@@ -323,6 +331,41 @@ def get_custom_users():
     rows = conn.execute("SELECT email, first_name, last_name, role, added_by, created_at FROM custom_users ORDER BY first_name").fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# Announcements (launcher "Updates" sidebar)
+
+def create_announcement(body, created_by, created_by_name=""):
+    """Insert an announcement and return its new id."""
+    conn = get_db()
+    cur = conn.execute(
+        "INSERT INTO announcements (body, created_by, created_by_name) VALUES (?, ?, ?)",
+        (body, created_by.lower(), created_by_name),
+    )
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
+def get_announcements(limit=50):
+    """Return announcements, newest first."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, body, created_by, created_by_name, created_at "
+        "FROM announcements ORDER BY created_at DESC, id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def delete_announcement(announcement_id):
+    """Delete an announcement by id."""
+    conn = get_db()
+    conn.execute("DELETE FROM announcements WHERE id = ?", (announcement_id,))
+    conn.commit()
+    conn.close()
 
 
 # ── App Submissions ──

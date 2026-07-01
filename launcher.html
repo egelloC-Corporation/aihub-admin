@@ -51,9 +51,14 @@
        branding and user controls. No top chrome needed here. */
 
     .content {
-      flex: 1; display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
+      flex: 1; display: flex; flex-direction: row;
+      align-items: flex-start; justify-content: center;
+      gap: 32px;
       padding: 40px 24px;
+    }
+    .content-main {
+      display: flex; flex-direction: column; align-items: center;
+      flex: 1 1 auto; max-width: 960px; min-width: 0;
     }
 
     .welcome {
@@ -246,6 +251,48 @@
     .icon-clr-8 { background: rgba(217,  70, 239, 0.32); color: #d946ef; box-shadow: inset 0 0 0 1px rgba(217,  70, 239, 0.55); }  /* fuchsia */
     .icon-clr-9 { background: rgba(236,  72, 153, 0.32); color: #ec4899; box-shadow: inset 0 0 0 1px rgba(236,  72, 153, 0.55); }  /* pink */
 
+    /* Updates sidebar */
+    .updates {
+      width: 300px; flex-shrink: 0; align-self: stretch;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px;
+    }
+    .updates-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .updates-head h3 { font-size: 15px; font-weight: 700; }
+    .updates-composer { margin-bottom: 16px; }
+    .updates-composer textarea {
+      width: 100%; min-height: 70px; resize: vertical;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 8px; padding: 10px; font-size: 13px; font-family: inherit; outline: none;
+    }
+    .updates-composer textarea:focus { border-color: var(--accent); }
+    .updates-composer button {
+      margin-top: 8px; width: 100%; padding: 8px; background: var(--accent);
+      color: #fff; border: none; border-radius: 8px; font-size: 13px;
+      font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+    }
+    .updates-composer button:hover { opacity: 0.9; }
+    .updates-composer button:disabled { opacity: 0.5; cursor: default; }
+    .updates-list { display: flex; flex-direction: column; gap: 10px; }
+    .update-card {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px; position: relative;
+    }
+    .update-card .update-body { font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .update-card .update-meta { margin-top: 8px; font-size: 11px; color: var(--text-dim); }
+    .update-card .update-del {
+      position: absolute; top: 8px; right: 8px; background: none; border: none;
+      color: var(--text-dim); cursor: pointer; font-size: 14px; line-height: 1;
+      padding: 2px 6px; border-radius: 6px;
+    }
+    .update-card .update-del:hover { color: #ef4444; background: rgba(239, 68, 68, 0.12); }
+    .updates-empty { font-size: 13px; color: var(--text-muted); }
+
+    @media (max-width: 860px) {
+      .content { flex-direction: column; align-items: center; }
+      .updates { width: 100%; max-width: 360px; }
+    }
+
     .footer {
       text-align: center; padding: 20px;
       font-size: 12px; color: var(--text-dim);
@@ -255,6 +302,7 @@
 <body>
 
 <div class="content">
+  <div class="content-main">
   <div class="welcome">
     <img src="/assets/incubator-logo.png" alt="egelloC Incubator" class="hero-logo" id="heroLogo">
     <p class="tagline" id="heroTagline">Where tools hatch.</p>
@@ -273,6 +321,16 @@
   <p id="appSearchEmpty" style="display:none;color:var(--text-muted);text-align:center;margin-top:8px;">
     No applications match your search.
   </p>
+  </div><!-- /.content-main -->
+
+  <aside class="updates" id="updatesPanel">
+    <div class="updates-head"><h3>Updates</h3></div>
+    <div class="updates-composer" id="updatesComposer" style="display:none;">
+      <textarea id="updateBody" placeholder="Share an update with the team&hellip;" maxlength="2000"></textarea>
+      <button id="updatePost" onclick="postAnnouncement()">Post update</button>
+    </div>
+    <div class="updates-list" id="updatesList"></div>
+  </aside>
 </div>
 
 <div class="footer" id="brandFooter">egelloC Incubator</div>
@@ -383,6 +441,7 @@ async function init() {
         document.getElementById("greeting").textContent = "Welcome, " + firstName;
         const deployed = await deployedPromise;
         renderApps(user.permissions || [], deployed);
+        loadAnnouncements((user.permissions || []).indexOf("admin") !== -1);
         return;
       }
     }
@@ -451,6 +510,85 @@ function filterApps() {
   var empty = document.getElementById("appSearchEmpty");
   // Only show "no matches" when a query is active and the grid itself is non-empty.
   if (empty) empty.style.display = (q && visible === 0 && cards.length > 0) ? "block" : "none";
+}
+
+// Updates sidebar
+var _isAdmin = false;
+
+function _annEsc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+function fmtDate(s) {
+  if (!s) return "";
+  // SQLite datetime('now') is UTC "YYYY-MM-DD HH:MM:SS".
+  var d = new Date(s.replace(" ", "T") + "Z");
+  if (isNaN(d.getTime())) return s;
+  var diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return Math.floor(diff/60) + "m ago";
+  if (diff < 86400) return Math.floor(diff/3600) + "h ago";
+  if (diff < 604800) return Math.floor(diff/86400) + "d ago";
+  return d.toLocaleDateString();
+}
+
+async function loadAnnouncements(isAdmin) {
+  if (typeof isAdmin === "boolean") _isAdmin = isAdmin;
+  var composer = document.getElementById("updatesComposer");
+  if (composer) composer.style.display = _isAdmin ? "block" : "none";
+  var list = document.getElementById("updatesList");
+  try {
+    var resp = await fetch("/launcher/api/announcements");
+    if (!resp.ok) throw new Error("http " + resp.status);
+    var data = await resp.json();
+    renderAnnouncements(data.announcements || []);
+  } catch (e) {
+    if (list) list.innerHTML = '<p class="updates-empty">Couldn\'t load updates.</p>';
+  }
+}
+
+function renderAnnouncements(items) {
+  var list = document.getElementById("updatesList");
+  if (!list) return;
+  if (!items.length) {
+    list.innerHTML = '<p class="updates-empty">No updates yet.</p>';
+    return;
+  }
+  list.innerHTML = items.map(function(a) {
+    var who = a.created_by_name || a.created_by || "";
+    var when = fmtDate(a.created_at);
+    var sep = (who && when) ? " &middot; " : "";
+    var del = _isAdmin
+      ? '<button class="update-del" title="Delete" onclick="deleteAnnouncement(' + Number(a.id) + ')">&times;</button>'
+      : '';
+    return '<div class="update-card">' + del +
+      '<div class="update-body">' + _annEsc(a.body) + '</div>' +
+      '<div class="update-meta">' + _annEsc(who) + sep + _annEsc(when) + '</div>' +
+    '</div>';
+  }).join("");
+}
+
+async function postAnnouncement() {
+  var ta = document.getElementById("updateBody");
+  var btn = document.getElementById("updatePost");
+  if (!ta) return;
+  var body = ta.value.trim();
+  if (!body) return;
+  if (btn) btn.disabled = true;
+  try {
+    var resp = await fetch("/launcher/api/announcements", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: body })
+    });
+    if (resp.ok) { ta.value = ""; await loadAnnouncements(); }
+  } catch (e) {}
+  if (btn) btn.disabled = false;
+}
+
+async function deleteAnnouncement(id) {
+  try {
+    var resp = await fetch("/launcher/api/announcements/" + Number(id) + "/delete", { method: "POST" });
+    if (resp.ok) await loadAnnouncements();
+  } catch (e) {}
 }
 
 function initDragAndDrop() {
